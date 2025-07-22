@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""
+Zoom Phone Wallboard Data Collector
+Polls Zoom Phone APIs and sends metrics to InfluxDB for Grafana visualization
+"""
+
+import requests
+import time
+import json
+from datetime import datetime, timezone
+from influxdb_client import InfluxDBClient, Point, WritePrecision
+from influxdb_client.client.write_api import SYNCHRONOUS
+import logging
+import os
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+class ZoomPhoneCollector:
+    def __init__(self):
+        # Zoom API credentials (use your values from the app)
+        self.account_id = "7yhcaXSSTR6ZLLEmXQOvoA"
+        self.client_id = "STuM1cOXQte7ZyZVSUnsA"
+        self.client_secret = "qzTTpqkWMnUscJoMR5zks9ObUsvatJ3e"
+        
+        # InfluxDB configuration
+        self.influx_url = "http://localhost:8086"  # Change to your InfluxDB URL
+        self.influx_token = "your-influxdb-token"  # Change to your token
+        self.influx_org = "your-org"               # Change to your org
+        self.influx_bucket = "zoom-phone"          # Bucket name
+        
+        # Zoom API base URL
+        self.base_url = "https://api.zoom.us/v2"
+        
+        # Access token (will be refreshed automatically)
+        self.access_token = None
+        self.token_expires_at = 0
+        
+        # Initialize InfluxDB client
+        self.influx_client = InfluxDBClient(
+            url=self.influx_url,
+            token=self.influx_token,
+            org=self.influx_org
+        )
+        self.write_api = self.influx_client.write_api(write_options=SYNCHRONOUS)
+
+    def get_access_token(self):
+        """Get OAuth access token from Zoom"""
+        if self.access_token and time.time() < self.token_expires_at:
+            return self.access_token
+            
+        url = "https://zoom.us/oauth/token"
+        data = {
+            "grant_type": "account_credentials",
+            "account_id": self.account_id
+        }
+        
+        response = requests.post(
+            url,
+            data=data,
+            auth=(self.client_id, self.client_secret)
+        )
+        
+        if response.status_code == 200:
+            token_data = response.json()
+            self.access_token = token_data["access_token"]
+            # Set expiration 5 minutes before actual expiry for safety
+            self.token_expires_at = time.time() + token_data["expires_in"] - 300
+            logger.info("Successfully obtained access token")
+            return self.access_token
+        else:
+            logger.error(f"Failed to get access token: {response.status_code} - {response.text}")
+            return None
+
+    def make_api_request(self, endpoint, params=None):
+        """Make authenticated request to Zoom API"""
+        token = self.get_access_token()
+        if not token:
+            return None
+            
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        
+        url = f"{self.base_url}{endpoint}"
+        response = requests.get(url, headers=headers, params=params)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logger.error(f"API request failed: {endpoint} - {response.status_code} - {response.text}")
+            return None
+
+    def collect_call_logs(self):
+        """Collect recent call logs for active call monitoring"""
+        # Get calls from last 5 minutes
+        from_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        
+        params = {
+            "from": (datetime.now(timezone.utc).replace(minute=datetime.now().minute-5)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "to": from_time,
+            "page_size": 100
+        }
+        
+        data = self.make_api_request("/phone/call_logs", params)
+        if not data:
+            return []
+            
+        points = []
+        call_logs = data.get("call_logs", [])
+        
+        # Count active calls and various metrics
+        active_calls = 0
+        completed_calls = 0
+        total_duration = 0
+        
+        for call in call_logs:
+            if call.get("call_end_time") is None:  # Active call
+                active_calls += 1
+            else:  # Completed call
+                completed_calls += 1
+                if call.get("duration"):
+                    total_duration += call["duration"]
+        
+        # Create InfluxDB points
+        timestamp = datetime.now(timezone.utc)
+        
+        points.append(
+            Point("call_metrics")
+            .tag("metric_type", "active_calls")
+            .field("count", active_calls)
+            .time(timestamp, WritePrecision.S)
+        )
+        
+        points.append(
+            Point("call_metrics")
+            .tag("metric_type", "completed_calls")
+            .field("count", completed_calls)
+            .time(timestamp, WritePrecision.S)
+        )
+        
+        if completed_calls > 0:
+            avg_duration = total_duration / completed_calls
+            points.append(
+                Point("call_metrics")
+                .tag("metric_type", "avg_call_duration")
+                .field("seconds", avg_duration)
+                .time(timestamp, WritePrecision.S)
+            )
+        
+        logger.info(f"Collected call metrics: {active_calls} active, {completed_calls} completed")
+        return points
+
+    def collect_queue_metrics(self):
+        """Collect call queue performance metrics"""
+        # Get all call queues
+        queues_data = self.make_api_request("/phone/call_queues")
+        if not queues_data:
+            return []
+            
+        points = []
+        timestamp = datetime.now(timezone.utc)
+        
+        for queue in queues_data.get("call_queues", []):
+            queue_id = queue["id"]
+            queue_name = queue["name"]
+            
+            # Get queue members
+            members_data = self.make_api_request(f"/phone/call_queues/{queue_id}/members")
+            if members_data:
+                members = members_data.get("members", [])
+                total_members = len(members)
+                available_members = sum(1 for m in members if m.get("status") == "available")
+                
+                points.append(
+                    Point("queue_metrics")
+                    .tag("queue_name", queue_name)
+                    .tag("queue_id", queue_id)
+                    .tag("metric_type", "total_agents")
+                    .field("count", total_members)
+                    .time(timestamp, WritePrecision.S)
+                )
+                
+                points.append(
+                    Point("queue_metrics")
+                    .tag("queue_name", queue_name)
+                    .tag("queue_id", queue_id)
+                    .tag("metric_type", "available_agents")
+                    .field("count", available_members)
+                    .time(timestamp, WritePrecision.S)
+                )
+                
+                logger.info(f"Queue {queue_name}: {available_members}/{total_members} agents available")
+        
+        return points
+
+    def collect_user_metrics(self):
+        """Collect user/agent status metrics"""
+        # This would require phone:read:list_users:admin scope
+        # For now, we'll skip this or you can add the scope
+        return []
+
+    def write_to_influxdb(self, points):
+        """Write data points to InfluxDB"""
+        if not points:
+            return
+            
+        try:
+            self.write_api.write(bucket=self.influx_bucket, record=points)
+            logger.info(f"Successfully wrote {len(points)} points to InfluxDB")
+        except Exception as e:
+            logger.error(f"Failed to write to InfluxDB: {e}")
+
+    def run_collection_cycle(self):
+        """Run one complete data collection cycle"""
+        logger.info("Starting data collection cycle...")
+        
+        all_points = []
+        
+        # Collect call logs
+        call_points = self.collect_call_logs()
+        all_points.extend(call_points)
+        
+        # Collect queue metrics
+        queue_points = self.collect_queue_metrics()
+        all_points.extend(queue_points)
+        
+        # Collect user metrics (if implemented)
+        user_points = self.collect_user_metrics()
+        all_points.extend(user_points)
+        
+        # Write to InfluxDB
+        self.write_to_influxdb(all_points)
+        
+        logger.info("Collection cycle completed")
+
+    def run(self, interval=30):
+        """Run the collector continuously"""
+        logger.info(f"Starting Zoom Phone wallboard collector (interval: {interval}s)")
+        
+        while True:
+            try:
+                self.run_collection_cycle()
+                time.sleep(interval)
+            except KeyboardInterrupt:
+                logger.info("Stopping collector...")
+                break
+            except Exception as e:
+                logger.error(f"Error in collection cycle: {e}")
+                time.sleep(interval)
+
+if __name__ == "__main__":
+    # Update these with your actual InfluxDB configuration
+    collector = ZoomPhoneCollector()
+    
+    # Run every 30 seconds
+    collector.run(interval=30)
