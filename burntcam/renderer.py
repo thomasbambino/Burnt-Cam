@@ -87,7 +87,7 @@ uniform float uBumps;
 uniform float uStretch;
 uniform int   uLimbs;
 uniform float uLimbR;
-uniform int   uShape;       // 0 = two-lobe character (peanut, egg...), 1 = lizard, 2 = dark mage
+uniform int   uShape;       // 0 = two-lobe character (peanut, egg...), 1 = lizard, 2 = dark mage, 3 = duelist
 uniform vec2  uBlink;       // lizard: eyelid closure, x = screen-left eye, y = screen-right eye
 uniform float uJaw;         // lizard: mouth opening 0..1
 uniform float uTongue;      // lizard: tongue sticking out 0..1
@@ -133,6 +133,10 @@ float sdEllipsoid(vec3 p, vec3 r) {
     float k0 = length(p / r);
     float k1 = length(p / (r * r));
     return k0 * (k0 - 1.0) / k1;
+}
+float sdBox(vec3 p, vec3 b) {
+    vec3 q = abs(p) - b;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
 }
 float sdCapsule(vec3 p, vec3 a, vec3 b, float r) {
     vec3 pa = p - a, ba = b - a;
@@ -443,10 +447,152 @@ vec3 mapMage(vec3 p) {
     return res;
 }
 
+// ------------------------------------------------------------------ duelist
+// A card duelist: huge spiky black hair with magenta tips and blonde bangs,
+// a blue school jacket with a tall collar over a black shirt, a choker, a
+// chain with a gold pyramid pendant, and one hand holding up a card.
+// Materials: 0 skin, 14 dark hair, 15 blonde hair, 16 black clothes,
+// 17 blue jacket, 18 white lining, 19 silver, 20 gold, 21 card.
+const vec3 DU_HAIR_C = vec3(0.0, 0.62, -0.10);
+const int DU_SPIKES = 9;
+const vec3 DU_TIPS[9] = vec3[9](
+    vec3(0.00, 1.26, -0.28), vec3(0.34, 1.16, -0.26), vec3(-0.34, 1.16, -0.26),
+    vec3(0.60, 0.95, -0.24), vec3(-0.60, 0.95, -0.24), vec3(0.72, 0.66, -0.22),
+    vec3(-0.72, 0.66, -0.22), vec3(0.18, 0.98, -0.62), vec3(-0.18, 0.98, -0.62));
+
+// Distance to the big spikes; t = how far along the nearest spike (0 root, 1 tip).
+float duelSpikes(vec3 ph, out float t) {
+    float d = 1e9;
+    t = 0.0;
+    for (int i = 0; i < DU_SPIKES; i++) {
+        vec3 a = DU_HAIR_C, b = DU_TIPS[i];
+        float di = sdRoundCone(ph, a, b, 0.23, 0.012);
+        if (di < d) {
+            vec3 ba = b - a;
+            t = clamp(dot(ph - a, ba) / dot(ba, ba), 0.0, 1.0);
+        }
+        d = smin(d, di, 0.035);
+    }
+    return d;
+}
+float duelBangs(vec3 ph) {
+    vec3 q = ph;
+    q.x = abs(q.x);
+    // Blonde spikes standing up at the front...
+    float d = sdRoundCone(ph, vec3(0.0, 0.66, 0.14), vec3(0.0, 0.98, 0.14), 0.07, 0.006);
+    d = min(d, sdRoundCone(q, vec3(0.09, 0.66, 0.13), vec3(0.20, 0.93, 0.12), 0.065, 0.006));
+    // ...short lightning-bolt locks over the forehead...
+    d = min(d, sdRoundCone(q, vec3(0.05, 0.70, 0.17), vec3(0.12, 0.585, 0.225), 0.045, 0.006));
+    // ...and long locks framing the face.
+    d = min(d, smin(sdRoundCone(q, vec3(0.18, 0.66, 0.11), vec3(0.235, 0.42, 0.12), 0.06, 0.035),
+                    sdRoundCone(q, vec3(0.235, 0.42, 0.12), vec3(0.20, 0.16, 0.10), 0.035, 0.006), 0.02));
+    return d;
+}
+float sdPyramid(vec3 p, float h) {
+    // Square base 1x1 on y = 0, apex at y = h (Inigo Quilez).
+    float m2 = h * h + 0.25;
+    p.xz = abs(p.xz);
+    p.xz = (p.z > p.x) ? p.zx : p.xz;
+    p.xz -= 0.5;
+    vec3 q = vec3(p.z, h * p.y - 0.5 * p.x, h * p.x + 0.5 * p.y);
+    float s = max(-q.x, 0.0);
+    float t = clamp((q.y - 0.5 * p.z) / (m2 + 0.25), 0.0, 1.0);
+    float a = m2 * (q.x + s) * (q.x + s) + q.y * q.y;
+    float b = m2 * (q.x + 0.5 * t) * (q.x + 0.5 * t) + (q.y - m2 * t) * (q.y - m2 * t);
+    float d2 = min(q.y, -q.x * m2 - q.y * 0.5) > 0.0 ? 0.0 : min(a, b);
+    return sqrt((d2 + q.z * q.z) / m2) * sign(max(q.z, -p.y));
+}
+const vec3 DU_PENDANT = vec3(0.0, -0.40, 0.22);     // top of the upside-down pyramid
+const vec3 DU_CARD = vec3(-0.50, 0.22, 0.36);
+vec3 mapDuelist(vec3 p) {
+    vec3 ph = toHead(p);
+    vec3 pb = toBody(p);
+    vec3 qs = pb;
+    qs.x = abs(qs.x);
+    vec3 res = vec3(1e9, 0.0, 0.0);
+    float bound;
+
+    // Head and hair.
+    bound = length(ph - vec3(0.0, 0.75, -0.15)) - 1.0;
+    if (bound < res.x) {
+        res = vec3(sdEllipsoid(ph - vec3(0.0, 0.39, 0.0), vec3(0.21, 0.29, 0.22)), 0.0, 1.0);
+        float cap = sdEllipsoid(ph - vec3(0.0, 0.56, -0.07), vec3(0.28, 0.27, 0.28));
+        cap = smax(cap, -sdEllipsoid(ph - vec3(0.0, 0.36, 0.22), vec3(0.21, 0.30, 0.26)), 0.02);
+        float t;
+        float hair = smin(cap, duelSpikes(ph, t), 0.06);
+        if (hair < res.x) res = vec3(hair, 14.0, 1.0);
+        float bangs = duelBangs(ph);
+        if (bangs < res.x) res = vec3(bangs, 15.0, 1.0);
+    } else {
+        res.x = bound;
+    }
+
+    // Upper body: neck, choker, collar, shirt, open jacket, arms, pendant, card.
+    bound = length(pb - vec3(0.0, -0.30, 0.0)) - 1.0;
+    if (bound < res.x) {
+        float neck = sdCapsule(pb, vec3(0.0, -0.05, 0.0), vec3(0.0, 0.25, 0.0), 0.11);
+        if (neck < res.x) res = vec3(neck, 0.0, 0.0);
+        float choker = sdTorus(pb - vec3(0.0, 0.08, 0.0), 0.115, 0.022);
+        if (choker < res.x) res = vec3(choker, 16.0, 0.0);
+        float metal = sdBox(pb - vec3(0.0, 0.08, 0.13), vec3(0.035, 0.025, 0.012)) - 0.005;   // buckle
+        // Chain: two strands from the collar down to the pendant.
+        metal = min(metal, sdCapsule(qs, vec3(0.10, 0.02, 0.09), vec3(0.015, DU_PENDANT.y + 0.02, DU_PENDANT.z), 0.011));
+        if (metal < res.x) res = vec3(metal, 19.0, 0.0);
+        vec3 qp = pb - DU_PENDANT;
+        qp.y = -qp.y;
+        float pendant = sdPyramid(qp / 0.20, 1.1) * 0.20;
+        if (pendant < res.x) res = vec3(pendant, 20.0, 0.0);
+
+        float shirt = sdEllipsoid(pb - vec3(0.0, -0.40, 0.0), vec3(0.28, 0.45, 0.18));
+        if (shirt < res.x) res = vec3(shirt, 16.0, 0.0);
+        // Jacket: a shell around the torso, open down the front.
+        float jacket = sdEllipsoid(pb - vec3(0.0, -0.40, -0.01), vec3(0.34, 0.52, 0.225));
+        jacket = smin(jacket, sdEllipsoid(qs - vec3(0.26, -0.08, 0.0), vec3(0.14, 0.12, 0.15)), 0.08);  // shoulders
+        jacket = abs(jacket) - 0.012;
+        float ang = atan(pb.x, pb.z);
+        jacket = max(jacket, -(abs(ang) - mix(0.30, 0.55, smoothstep(-0.1, -0.9, pb.y))));
+        jacket = max(jacket, (-0.98) - pb.y);
+        // Tall standing collar, open at the front.
+        vec3 qc = pb;
+        qc.xz *= 1.0 - 0.9 * clamp(qc.y, 0.0, 0.3);           // flares outward toward the top
+        float collar = abs(sdCapsule(qc, vec3(0.0, -0.02, 0.0), vec3(0.0, 0.30, -0.02), 0.16)) - 0.013;
+        collar = max(collar, -(abs(ang) - 0.62));
+        collar = max(collar, pb.y - (0.33 - 0.10 * smoothstep(0.4, 1.4, abs(ang))));
+        float blue = min(jacket, collar);
+        // Sleeves: the left arm hangs down, the right one holds up a card.
+        float wave = 0.02 * sin(uTime * 1.5);
+        blue = min(blue, smin(sdRoundCone(pb, vec3(0.30, -0.10, 0.0), vec3(0.40, -0.48, 0.02), 0.095, 0.08),
+                              sdRoundCone(pb, vec3(0.40, -0.48, 0.02), vec3(0.44, -0.82, 0.08), 0.08, 0.07), 0.03));
+        blue = min(blue, smin(sdRoundCone(pb, vec3(-0.30, -0.10, 0.0), vec3(-0.56, -0.26, 0.14), 0.095, 0.08),
+                              sdRoundCone(pb, vec3(-0.56, -0.26, 0.14), DU_CARD + vec3(0.02, -0.20 + wave, -0.04), 0.08, 0.065), 0.03));
+        if (blue < res.x) res = vec3(blue, 17.0, 0.0);
+        float hands = min(sdEllipsoid(pb - vec3(0.45, -0.89, 0.10), vec3(0.055, 0.075, 0.05)),
+                          sdEllipsoid(pb - (DU_CARD + vec3(0.02, -0.12 + wave, -0.03)), vec3(0.06, 0.07, 0.05)));
+        if (hands < res.x) res = vec3(hands, 0.0, 0.0);
+        float card = sdBox(rotZ(pb - (DU_CARD + vec3(0.0, wave, 0.0)), -0.15), vec3(0.085, 0.12, 0.004)) - 0.003;
+        if (card < res.x) res = vec3(card, 21.0, 0.0);
+    } else {
+        res.x = min(res.x, bound);
+    }
+
+    // Legs and shoes.
+    bound = length(pb - vec3(0.0, -1.30, 0.05)) - 0.55;
+    if (bound < res.x) {
+        float legs = smin(sdRoundCone(qs, vec3(0.13, -0.88, 0.0), vec3(0.15, -1.25, 0.02), 0.12, 0.095),
+                          sdRoundCone(qs, vec3(0.15, -1.25, 0.02), vec3(0.15, -1.56, 0.0), 0.095, 0.08), 0.03);
+        legs = min(legs, sdEllipsoid(qs - vec3(0.16, -1.60, 0.07), vec3(0.08, 0.06, 0.15)));
+        if (legs < res.x) res = vec3(legs, 16.0, 0.0);
+    } else {
+        res.x = min(res.x, bound);
+    }
+    return res;
+}
+
 // x = distance, y = material (0 skin/shell, 1 limbs, 2 gloves, 3 eyes), z = head weight
 vec3 map(vec3 p) {
     if (uShape == 1) return mapLizard(p);
     if (uShape == 2) return mapMage(p);
+    if (uShape == 3) return mapDuelist(p);
     vec3 ph = toHead(p);
     vec3 pb = toBody(p);
     vec3 rh = uHead.w * uHeadScale * vec3(1.0 - 0.35 * uStretch, 1.0 + uStretch, 1.0 - 0.35 * uStretch);
@@ -643,6 +789,50 @@ vec3 mageAlbedo(vec3 pos, vec3 n, vec3 m, out float gloss, out vec3 emit) {
     return vec3(0.95, 0.80, 0.66);                                                   // skin
 }
 
+vec3 duelistAlbedo(vec3 pos, vec3 n, vec3 m, out float gloss) {
+    vec3 ph = toHead(pos);
+    vec3 pb = toBody(pos);
+    if (m.y > 20.5) {                                                        // card
+        gloss = 0.5;
+        vec3 q = rotZ(pb - (DU_CARD + vec3(0.0, 0.02 * sin(uTime * 1.5), 0.0)), -0.15);
+        if (q.z < 0.0) return vec3(0.45, 0.28, 0.14);                        // card back
+        vec2 a = abs(q.xy - vec2(0.0, 0.015));
+        bool art = a.x < 0.065 && a.y < 0.055;
+        vec3 c = vec3(0.80, 0.62, 0.32);                                     // gold-brown frame
+        if (art) c = mix(vec3(0.20, 0.35, 0.55), vec3(0.45, 0.20, 0.65), smoothstep(-0.05, 0.08, q.y));
+        if (!art && q.y < -0.05 && a.x < 0.07) c = vec3(0.90, 0.80, 0.60);   // text box
+        return c;
+    }
+    if (m.y > 19.5) {                                                        // gold pendant with an eye
+        gloss = 1.6;
+        vec3 q = pb - DU_PENDANT;
+        float eye = abs(length((q.xy - vec2(0.0, -0.07)) * vec2(1.0, 2.2)) - 0.035);
+        float pupil = length(q.xy - vec2(0.0, -0.07)) - 0.012;
+        float mark = max(1.0 - smoothstep(0.004, 0.008, eye), 1.0 - smoothstep(0.0, 0.004, pupil));
+        return mix(vec3(0.95, 0.75, 0.25), vec3(0.35, 0.22, 0.05), mark * step(0.0, q.z));
+    }
+    if (m.y > 18.5) { gloss = 1.8; return vec3(0.78, 0.80, 0.84); }         // silver
+    if (m.y > 17.5) { gloss = 0.3; return vec3(0.95, 0.95, 0.97); }         // white
+    if (m.y > 16.5) {                                                        // blue jacket
+        gloss = 0.35;
+        // The inside of the collar and jacket front is lined in white.
+        vec3 nb = uBodyInv * n;
+        vec3 radial = normalize(vec3(pb.x, 0.0, pb.z) + 1e-5);
+        bool inner = dot(nb, radial) < -0.15 && abs(pb.x) < 0.36 && (pb.y > -0.02 || pb.z > 0.05);
+        return inner ? vec3(0.95, 0.95, 0.97) : vec3(0.16, 0.26, 0.68);
+    }
+    if (m.y > 15.5) { gloss = 0.25; return vec3(0.07, 0.07, 0.09); }        // black clothes
+    if (m.y > 14.5) { gloss = 0.4; return vec3(0.98, 0.82, 0.32); }         // blonde
+    if (m.y > 13.5) {                                                        // spiky hair
+        gloss = 0.4;
+        float t;
+        duelSpikes(ph, t);
+        return mix(vec3(0.07, 0.05, 0.09), vec3(0.72, 0.08, 0.38), smoothstep(0.42, 0.58, t));
+    }
+    gloss = 0.2;
+    return vec3(0.96, 0.82, 0.70);                                           // skin
+}
+
 // -------------------------------------------------------------------- main
 // Fill the frame with an image, cropping (not stretching) to fit.
 vec3 coverSample(sampler2D tex, float aspect) {
@@ -681,7 +871,7 @@ void main() {
     // Bounding sphere around the character to skip empty pixels quickly.
     vec3 oc = ro - (uOffset + vec3(0.0, -0.25, 0.0));
     float b = dot(oc, rd);
-    float bR = uShape == 1 ? 3.2 : (uShape == 2 ? 2.5 : 2.1);
+    float bR = uShape == 1 ? 3.2 : (uShape >= 2 ? 2.5 : 2.1);
     float h = b * b - (dot(oc, oc) - bR * bR);
     if (h > 0.0) {
         h = sqrt(h);
@@ -704,7 +894,9 @@ void main() {
             vec3 emit = vec3(0.0);
             vec3 faceC = vec3(0.0);
 
-            if (uShape == 2) {
+            if (uShape == 3) {
+                alb = duelistAlbedo(pos, n, m, gloss);
+            } else if (uShape == 2) {
                 alb = mageAlbedo(pos, n, m, gloss, emit);
             } else if (uShape == 1) {
                 alb = lizardAlbedo(pos, n, m, gloss);

@@ -173,4 +173,33 @@ SKINS = [
         "face_tint": (0.92, 0.90, 1.0),        # a touch of the mage's pale, cool skin
         "tint_amount": 0.15,
     },
+    {
+        # A card duelist in the spirit of Yu-Gi-Oh's Yugi: huge spiky black hair
+        # with magenta tips and blonde bangs, a blue school jacket, a choker,
+        # a gold pyramid pendant, and a card held up. Your face is in the middle.
+        "name": "Duelist",
+        "shape": "duelist",                    # custom model (see mapDuelist in renderer.py)
+        "default_mask": "full",
+        "head": (0.0, 0.39, 0.0, 0.25),
+        "head_scale": (1.0, 1.0, 1.0),
+        "body": (0.0, -0.40, 0.0, 0.40),
+        "body_scale": (1.0, 1.0, 1.0),
+        "top": 1.28,                           # hair tips, for camera framing
+        "blend": 0.1,
+        "bumps": 0.0,
+        "body_follow": 0.2,
+        "base": (0.16, 0.26, 0.68),
+        "dark": (0.07, 0.07, 0.09),
+        "line": (0.98, 0.82, 0.32),
+        "burn": 0.0,
+        "net": 0.0,
+        "gloss": 0.4,
+        "limbs": False,
+        "limb_color": (0.16, 0.26, 0.68),
+        "glove_color": (0.96, 0.82, 0.70),
+        "face_size": 0.84,
+        "face_y": 0.37,
+        "face_tint": (1.0, 1.0, 1.0),
+        "tint_amount": 0.0,
+    },
 ]

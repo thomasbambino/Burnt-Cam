@@ -338,7 +338,7 @@ def skin_uniforms(skin: dict) -> dict:
         "uBumps": skin["bumps"],
         "uLimbs": int(skin["limbs"]),
         "uLimbR": skin.get("limb_radius", 0.045),
-        "uShape": {"lizard": 1, "mage": 2}.get(skin.get("shape"), 0),
+        "uShape": {"lizard": 1, "mage": 2, "duelist": 3}.get(skin.get("shape"), 0),
         "uBodyYaw": float(np.radians(skin.get("body_yaw", 0.0))),
         "uNetScale": skin.get("net_scale", 1.0),
         "uBelly": skin.get("belly", (1.0, 1.0, 1.0)),
