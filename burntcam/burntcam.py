@@ -338,7 +338,7 @@ def skin_uniforms(skin: dict) -> dict:
         "uBumps": skin["bumps"],
         "uLimbs": int(skin["limbs"]),
         "uLimbR": skin.get("limb_radius", 0.045),
-        "uShape": 1 if skin.get("shape") == "lizard" else 0,
+        "uShape": {"lizard": 1, "mage": 2}.get(skin.get("shape"), 0),
         "uBodyYaw": float(np.radians(skin.get("body_yaw", 0.0))),
         "uNetScale": skin.get("net_scale", 1.0),
         "uBelly": skin.get("belly", (1.0, 1.0, 1.0)),
@@ -571,6 +571,21 @@ HELP = [
 ]
 
 
+def outlined_text(img, text, org, scale, color, thickness=1):
+    """Text with a black border so it's readable on any background.
+
+    The border is the same text stamped in black around it (a thicker stroke
+    would make OpenCV space the letters differently).
+    """
+    x, y = org
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            if dx or dy:
+                cv2.putText(img, text, (x + dx, y + dy), cv2.FONT_HERSHEY_SIMPLEX, scale,
+                            (0, 0, 0), thickness, cv2.LINE_AA)
+    cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
+
+
 def draw_hud(img, state, skin_name, fps, warning=None):
     lines = [f"{skin_name} | {VIEWS[state['view']]} | bg: {background_label(state['bg'])} | "
              f"face: {state['mask']} | {fps:4.1f} fps",
@@ -579,11 +594,10 @@ def draw_hud(img, state, skin_name, fps, warning=None):
         lines += HELP
     y = 26
     for line in lines:
-        cv2.putText(img, line, (12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+        outlined_text(img, line, (12, y), 0.55, (255, 255, 255))
         y += 22
     if warning:
-        h = img.shape[0]
-        cv2.putText(img, warning, (12, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (80, 200, 255), 2, cv2.LINE_AA)
+        outlined_text(img, warning, (12, img.shape[0] - 20), 0.7, (80, 200, 255), 2)
 
 
 def draw_pip(img, frame, face_found):

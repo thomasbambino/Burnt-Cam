@@ -14,13 +14,16 @@ webcam ──► MediaPipe face tracking ──► 3D peanut (rendered on your G
 * Your face is "unwrapped" into a front-facing texture before it's painted on, so it stays
   glued to the peanut even when you turn your head.
 * Opening your mouth makes the head stretch a little (squash and stretch).
-* It comes with five skins: **Burnt Peanut**, **Golden Peanut**, **Egg**, **Potato** and
-  **Lizard**. The lizard is a cute, upright cartoon inspired by Tom Lizard from Pixar's
+* It comes with six characters: **Burnt Peanut**, **Golden Peanut**, **Egg**, **Potato**,
+  **Lizard** and **Dark Mage**. The lizard is a cute, upright cartoon inspired by Tom Lizard from Pixar's
   *Hoppers*. It has a soft green bean-shaped body, big googly eyes, a wide smile and a
   curly tail. By default it's a *puppet*: its mouth opens when you open yours, its tongue
   sticks out when you stick yours out, its eyes blink when you blink, and its head turns
   when you turn. Press **M** to put your real face on it instead. You can add more skins in
   `skins.py`.
+* The **Dark Mage** is a purple-robed sorcerer inspired by Yu-Gi-Oh's Dark Magician. It has
+  a tall, curling hat with a gold band and gem, armor with shoulder plates, and a staff
+  with a glowing orb. Your whole face shows in the hat's opening.
 * Backgrounds: studio gradient, green screen (for OBS chroma key), your real room, or any
   picture or video of your own (press **U** to upload one).
 * Camera views: full body, waist up, chest up or close-up (press **V**), with fine zoom on
@@ -70,7 +73,7 @@ Run anyway**. Windows shows this for any script downloaded from the internet.
 
 | Key       | Action                                                           |
 |-----------|------------------------------------------------------------------|
-| 1–5 / N   | Switch character                                                 |
+| 1–6 / N   | Switch character                                                 |
 | V         | Camera view: full body / waist up / chest up / close-up          |
 | + / −     | Zoom in / out                                                    |
 | B         | Next background (studio, green, webcam, then your own)           |
@@ -95,7 +98,7 @@ add them after the file name, for example `"Burnt Cam.bat" --skin egg --bg green
 |---------------------|------------|-----------------------------------------------------------------------|
 | `--camera`          | auto       | Which webcam: `auto` (the first real one), a number, or part of its name, e.g. `--camera c920` |
 | `--list-cameras`    |            | Show the webcams Burnt Cam can find, then exit                        |
-| `--skin`            | last used  | Character number (1–5) or name (`burntpeanut`, `goldenpeanut`, `egg`, `potato`, `lizard`) |
+| `--skin`            | last used  | Character number (1–6) or name (`burntpeanut`, `goldenpeanut`, `egg`, `potato`, `lizard`, `darkmage`) |
 | `--mask`            | per skin   | `features`, `full` or `off` (puppet mode)                             |
 | `--bg`              | last used  | `studio`, `green`, `webcam`, or the path to a picture or video        |
 | `--view`            | last used  | `full`, `waist`, `chest` or `face`                                    |
@@ -133,8 +136,8 @@ entries and change:
   features mode shows only your mouth) and `body_follow` (how much the body turns with
   your head).
 * `default_mask`: the face mode the skin starts in (`features`, `full` or `off`).
-* `"shape": "lizard"` switches to the cartoon lizard model, which has its own body. It's
-  defined in `mapLizard` in `renderer.py`. `body_yaw` turns its body.
+* `"shape": "lizard"` or `"mage"` switches to one of the custom models, `mapLizard` or
+  `mapMage` in `renderer.py`. `body_yaw` turns the lizard's body.
 
 ## Troubleshooting
 

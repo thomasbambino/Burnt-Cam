@@ -87,7 +87,7 @@ uniform float uBumps;
 uniform float uStretch;
 uniform int   uLimbs;
 uniform float uLimbR;
-uniform int   uShape;       // 0 = two-lobe character (peanut, egg...), 1 = lizard
+uniform int   uShape;       // 0 = two-lobe character (peanut, egg...), 1 = lizard, 2 = dark mage
 uniform vec2  uBlink;       // lizard: eyelid closure, x = screen-left eye, y = screen-right eye
 uniform float uJaw;         // lizard: mouth opening 0..1
 uniform float uTongue;      // lizard: tongue sticking out 0..1
@@ -307,9 +307,88 @@ vec3 mapLizard(vec3 p) {
     return res;
 }
 
+// ---------------------------------------------------------------- dark mage
+// A purple-robed sorcerer: tall curled hat with a gold band and gem, cheek
+// guards, armored chest with pauldrons, a robe down to the floor and a staff
+// topped with a glowing orb. Your face shows in the hat's opening.
+// Materials: 0 skin, 6 armor/hat, 7 gold, 8 glowing gem, 9 staff, 10 robe.
+float sdTorus(vec3 p, float R, float r) {
+    vec2 q = vec2(length(p.xz) - R, p.y);
+    return length(q) - r;
+}
+vec3 mapMage(vec3 p) {
+    vec3 ph = toHead(p);
+    vec3 pb = toBody(p);
+
+    // Head
+    vec3 res = vec3(sdEllipsoid(ph - vec3(0.0, 0.40, 0.0), vec3(0.24, 0.30, 0.26)), 0.0, 1.0);
+
+    // Hat: a helmet-like shell with the face cut out, and a tall cone that
+    // curls backwards.
+    float helm = sdEllipsoid(ph - vec3(0.0, 0.50, -0.04), vec3(0.32, 0.31, 0.32));
+    helm = smax(helm, -sdEllipsoid(ph - vec3(0.0, 0.34, 0.24), vec3(0.25, 0.31, 0.28)), 0.03);
+    // The cone sweeps up and far back into a sharp, drooping point.
+    // It also leans off to one side so the curl reads from the front.
+    const vec3 H0 = vec3(0.0, 0.64, -0.08), H1 = vec3(0.03, 0.98, -0.20), H2 = vec3(-0.04, 1.20, -0.38);
+    const vec3 H3 = vec3(-0.20, 1.31, -0.55), H4 = vec3(-0.42, 1.27, -0.68);
+    float cone = sdRoundCone(ph, H0, H1, 0.30, 0.21);
+    cone = smin(cone, sdRoundCone(ph, H1, H2, 0.21, 0.13), 0.05);
+    cone = smin(cone, sdRoundCone(ph, H2, H3, 0.13, 0.065), 0.04);
+    cone = smin(cone, sdRoundCone(ph, H3, H4, 0.065, 0.008), 0.03);
+    float hat = smin(helm, cone, 0.08);
+    vec3 qh = ph;
+    qh.x = abs(qh.x);
+    hat = smin(hat, sdEllipsoid(qh - vec3(0.25, 0.30, 0.03), vec3(0.07, 0.25, 0.15)), 0.05);  // cheek guards
+    if (hat < res.x) res = vec3(hat, 6.0, 1.0);
+    float band = sdTorus(ph - vec3(0.0, 0.64, -0.04), 0.305, 0.03);
+    if (band < res.x) res = vec3(band, 7.0, 1.0);
+    float gem = length(ph - vec3(0.0, 0.66, 0.28)) - 0.05;
+    if (gem < res.x) res = vec3(gem, 8.0, 1.0);
+
+    // Body: collar, armored chest, pauldrons and a robe flaring to the floor.
+    float collar = sdRoundCone(pb, vec3(0.0, -0.05, 0.0), vec3(0.0, 0.18, 0.0), 0.17, 0.14);
+    float chest = sdEllipsoid(pb - vec3(0.0, -0.28, 0.0), vec3(0.40, 0.36, 0.27));
+    vec3 qs = pb;
+    qs.x = abs(qs.x);
+    float pauld = sdEllipsoid(qs - vec3(0.42, -0.03, 0.0), vec3(0.24, 0.13, 0.25));
+    float armor = smin(smin(collar, chest, 0.08), pauld, 0.04);
+    if (armor < res.x) res = vec3(armor, 6.0, 0.0);
+    float robe = sdRoundCone(pb, vec3(0.0, -0.45, 0.0), vec3(0.0, -1.48, 0.0), 0.33, 0.52);
+    robe = max(robe, (GROUND + 0.01) - pb.y);
+    if (robe < res.x) res = vec3(robe, 10.0, 0.0);
+    float trim = min(sdTorus(pb - vec3(0.0, -0.52, 0.0), 0.345, 0.035),      // belt
+                     sdTorus(pb - vec3(0.0, GROUND + 0.05, 0.0), 0.545, 0.03)); // hem
+    trim = min(trim, sdTorus(qs - vec3(0.42, -0.07, 0.0), 0.225, 0.02));    // pauldron rims
+    if (trim < res.x) res = vec3(trim, 7.0, 0.0);
+
+    // Sleeves and hands. The right arm (screen left) holds the staff.
+    vec3 sl = vec3(0.44, -0.10, 0.0);
+    float arms = smin(sdRoundCone(pb, sl, vec3(0.57, -0.55, 0.06), 0.10, 0.085),
+                      sdRoundCone(pb, vec3(0.57, -0.55, 0.06), vec3(0.51, -0.86, 0.18), 0.085, 0.075), 0.03);
+    vec3 sr = vec3(-0.44, -0.10, 0.0);
+    arms = min(arms, smin(sdRoundCone(pb, sr, vec3(-0.64, -0.40, 0.12), 0.10, 0.085),
+                          sdRoundCone(pb, vec3(-0.64, -0.40, 0.12), vec3(-0.64, -0.47, 0.30), 0.085, 0.075), 0.03));
+    if (arms < res.x) res = vec3(arms, 10.0, 0.0);
+    float hands = min(length(pb - vec3(0.50, -0.93, 0.20)) - 0.07,
+                      sdEllipsoid(pb - vec3(-0.64, -0.48, 0.34), vec3(0.075, 0.09, 0.07)));
+    if (hands < res.x) res = vec3(hands, 0.0, 0.0);
+
+    // Staff with a gold ring and a glowing orb on top.
+    vec3 st = vec3(-0.64, 0.0, 0.34);
+    float staff = sdCapsule(pb, vec3(st.x, GROUND + 0.02, st.z), vec3(st.x, 0.62, st.z), 0.032);
+    if (staff < res.x) res = vec3(staff, 9.0, 0.0);
+    vec3 qo = pb - vec3(st.x, 0.80, st.z);
+    float ring = min(sdTorus(qo.xzy, 0.15, 0.024), sdCapsule(pb, vec3(st.x, 0.60, st.z), vec3(st.x, 0.66, st.z), 0.045));
+    if (ring < res.x) res = vec3(ring, 7.0, 0.0);
+    float orb = length(qo) - 0.085;
+    if (orb < res.x) res = vec3(orb, 8.0, 0.0);
+    return res;
+}
+
 // x = distance, y = material (0 skin/shell, 1 limbs, 2 gloves, 3 eyes), z = head weight
 vec3 map(vec3 p) {
     if (uShape == 1) return mapLizard(p);
+    if (uShape == 2) return mapMage(p);
     vec3 ph = toHead(p);
     vec3 pb = toBody(p);
     vec3 rh = uHead.w * uHeadScale * vec3(1.0 - 0.35 * uStretch, 1.0 + uStretch, 1.0 - 0.35 * uStretch);
@@ -454,6 +533,34 @@ vec3 lizardAlbedo(vec3 pos, vec3 n, vec3 m, out float gloss) {
     return col;
 }
 
+vec3 mageAlbedo(vec3 pos, vec3 m, out float gloss, out vec3 emit) {
+    emit = vec3(0.0);
+    if (m.y > 9.5) {                                                                                // robe
+        gloss = 0.3;
+        vec3 pb = toBody(pos);
+        vec3 c = vec3(0.21, 0.08, 0.36) * (0.9 + 0.2 * fbm(pos * 6.0));
+        // A lighter front panel, widening toward the hem, edged in gold.
+        float halfw = 0.10 + 0.14 * clamp((-0.55 - pb.y) / 1.0, 0.0, 1.0);
+        float front = step(0.0, pb.z);
+        float edge = abs(abs(pb.x) - halfw);
+        if (pb.y < -0.56) {
+            c = mix(c, vec3(0.36, 0.20, 0.58), front * step(abs(pb.x), halfw));
+            c = mix(c, vec3(0.95, 0.72, 0.30), front * (1.0 - smoothstep(0.008, 0.016, edge)));
+        }
+        return c;
+    }
+    if (m.y > 8.5) { gloss = 0.4; return vec3(0.20, 0.15, 0.24); }                                  // staff
+    if (m.y > 7.5) {                                                                                // gem / orb
+        gloss = 2.0;
+        emit = vec3(0.10, 0.55, 0.25) * (0.8 + 0.2 * sin(uTime * 3.0));
+        return vec3(0.15, 0.75, 0.40);
+    }
+    if (m.y > 6.5) { gloss = 1.4; return vec3(0.95, 0.72, 0.30); }                                  // gold
+    if (m.y > 5.5) { gloss = 0.55; return vec3(0.30, 0.12, 0.50); }                                 // armor, hat
+    gloss = 0.2;
+    return vec3(0.86, 0.80, 0.86);                                                                  // skin
+}
+
 // -------------------------------------------------------------------- main
 // Fill the frame with an image, cropping (not stretching) to fit.
 vec3 coverSample(sampler2D tex, float aspect) {
@@ -492,7 +599,7 @@ void main() {
     // Bounding sphere around the character to skip empty pixels quickly.
     vec3 oc = ro - (uOffset + vec3(0.0, -0.25, 0.0));
     float b = dot(oc, rd);
-    float bR = uShape == 1 ? 3.2 : 2.1;
+    float bR = uShape == 1 ? 3.2 : (uShape == 2 ? 2.4 : 2.1);
     float h = b * b - (dot(oc, oc) - bR * bR);
     if (h > 0.0) {
         h = sqrt(h);
@@ -512,9 +619,12 @@ void main() {
             vec3 alb;
             float gloss = uGloss;
             float faceM = 0.0;
+            vec3 emit = vec3(0.0);
             vec3 faceC = vec3(0.0);
 
-            if (uShape == 1) {
+            if (uShape == 2) {
+                alb = mageAlbedo(pos, m, gloss, emit);
+            } else if (uShape == 1) {
                 alb = lizardAlbedo(pos, n, m, gloss);
             } else if (m.y < 0.5) {
                 alb = shell(mix(toBody(pos), ph, m.z));
@@ -546,7 +656,7 @@ void main() {
             vec3 shaded = alb * lin + spe * vec3(1.0, 0.95, 0.9) * ao + 0.3 * fre * vec3(1.0, 0.9, 0.8) * ao;
             // The face keeps most of its own lighting so it stays readable.
             vec3 faceLit = faceC * (0.7 + 0.4 * dif) * mix(1.0, ao, 0.5);
-            col = mix(shaded, faceLit, faceM);
+            col = mix(shaded, faceLit, faceM) + emit;
         }
     }
     fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
