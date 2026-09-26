@@ -11,7 +11,7 @@ Colors are 0..1 RGB.
 Optional keys: "net_scale" (size of the scale/netting cells), "belly" +
 "belly_amount", "limb_radius", "body_follow" (how much the body turns with
 your head), "top" (highest point, for camera framing; defaults to the top of
-the head), "mouth_only" (features mask shows only your mouth), "default_mask"
+the head), "head_follow" (how much the head turns with yours), "mouth_only" (features mask shows only your mouth), "default_mask"
 (features / full / off).
 "shape": "lizard" switches to the cartoon lizard model, which has its own
 body (see mapLizard in renderer.py) and uses "body_yaw".
@@ -201,5 +201,36 @@ SKINS = [
         "face_y": 0.37,
         "face_tint": (1.0, 1.0, 1.0),
         "tint_amount": 0.0,
+    },
+    {
+        # A cartoon sea sponge in the SpongeBob style: yellow, porous and
+        # square, with a white shirt and red tie, brown square pants, and
+        # striped socks. Shows your eyes and mouth; with your face off (M) it
+        # uses its own big eyes and buck-toothed grin, driven by your face.
+        "name": "Sea Sponge",
+        "shape": "sponge",                     # custom model (see mapSponge in renderer.py)
+        "default_mask": "features",
+        "head": (0.0, 0.30, 0.0, 0.55),
+        "head_scale": (1.0, 1.0, 1.0),
+        "body": (0.0, -0.82, 0.0, 0.40),
+        "body_scale": (1.0, 1.0, 1.0),
+        "top": 0.92,
+        "head_follow": 0.6,                    # the whole sponge turns, so keep it gentle
+        "body_follow": 0.15,
+        "blend": 0.1,
+        "bumps": 0.0,
+        "base": (1.0, 0.90, 0.25),
+        "dark": (0.70, 0.70, 0.12),
+        "line": (0.05, 0.04, 0.03),
+        "burn": 0.0,
+        "net": 0.0,
+        "gloss": 0.2,
+        "limbs": False,
+        "limb_color": (1.0, 0.90, 0.25),
+        "glove_color": (1.0, 0.90, 0.25),
+        "face_size": 1.50,                     # puts your eyes where its eyes are
+        "face_y": 0.205,
+        "face_tint": (1.0, 0.92, 0.45),        # warms your skin toward sponge-yellow
+        "tint_amount": 0.45,
     },
 ]

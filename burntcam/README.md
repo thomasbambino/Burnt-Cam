@@ -14,8 +14,8 @@ webcam ──► MediaPipe face tracking ──► 3D peanut (rendered on your G
 * Your face is "unwrapped" into a front-facing texture before it's painted on, so it stays
   glued to the peanut even when you turn your head.
 * Opening your mouth makes the head stretch a little (squash and stretch).
-* It comes with seven characters: **Burnt Peanut**, **Golden Peanut**, **Egg**, **Potato**,
-  **Lizard**, **Dark Mage** and **Duelist**. The lizard is a cute, upright cartoon inspired by Tom Lizard from Pixar's
+* It comes with eight characters: **Burnt Peanut**, **Golden Peanut**, **Egg**, **Potato**,
+  **Lizard**, **Dark Mage**, **Duelist** and **Sea Sponge**. The lizard is a cute, upright cartoon inspired by Tom Lizard from Pixar's
   *Hoppers*. It has a soft green bean-shaped body, big googly eyes, a wide smile and a
   curly tail. By default it's a *puppet*: its mouth opens when you open yours, its tongue
   sticks out when you stick yours out, its eyes blink when you blink, and its head turns
@@ -27,6 +27,10 @@ webcam ──► MediaPipe face tracking ──► 3D peanut (rendered on your G
 * The **Duelist** is inspired by Yu-Gi-Oh's Yugi. It has huge spiky black-and-magenta hair
   with blonde bangs, a blue school jacket, a choker, a gold pyramid pendant, and a card held
   up. Your face is in the middle.
+* The **Sea Sponge** is a SpongeBob-style yellow sponge with a white shirt, red tie, brown
+  square pants and striped socks. It shows your real eyes and mouth. Press **M** until it
+  says `off`, and it uses its own big blue eyes and buck-toothed grin instead, which blink,
+  open and stick out their tongue along with you.
 * Backgrounds: studio gradient, green screen (for OBS chroma key), your real room, or any
   picture or video of your own (press **U** to upload one).
 * Camera views: full body, waist up, chest up or close-up (press **V**), with fine zoom on
@@ -76,7 +80,7 @@ Run anyway**. Windows shows this for any script downloaded from the internet.
 
 | Key       | Action                                                           |
 |-----------|------------------------------------------------------------------|
-| 1–7 / N   | Switch character                                                 |
+| 1–8 / N   | Switch character                                                 |
 | V         | Camera view: full body / waist up / chest up / close-up          |
 | + / −     | Zoom in / out                                                    |
 | B         | Next background (studio, green, webcam, then your own)           |
@@ -101,7 +105,7 @@ add them after the file name, for example `"Burnt Cam.bat" --skin egg --bg green
 |---------------------|------------|-----------------------------------------------------------------------|
 | `--camera`          | auto       | Which webcam: `auto` (the first real one), a number, or part of its name, e.g. `--camera c920` |
 | `--list-cameras`    |            | Show the webcams Burnt Cam can find, then exit                        |
-| `--skin`            | last used  | Character number (1–7) or name (`burntpeanut`, `goldenpeanut`, `egg`, `potato`, `lizard`, `darkmage`, `duelist`) |
+| `--skin`            | last used  | Character number (1–8) or name (`burntpeanut`, `goldenpeanut`, `egg`, `potato`, `lizard`, `darkmage`, `duelist`, `seasponge`) |
 | `--mask`            | per skin   | `features`, `full` or `off` (puppet mode)                             |
 | `--bg`              | last used  | `studio`, `green`, `webcam`, or the path to a picture or video        |
 | `--view`            | last used  | `full`, `waist`, `chest` or `face`                                    |
@@ -139,8 +143,8 @@ entries and change:
   features mode shows only your mouth) and `body_follow` (how much the body turns with
   your head).
 * `default_mask`: the face mode the skin starts in (`features`, `full` or `off`).
-* `"shape": "lizard"`, `"mage"` or `"duelist"` switches to one of the custom models
-  (`mapLizard`, `mapMage` or `mapDuelist` in `renderer.py`). `body_yaw` turns the lizard's body.
+* `"shape": "lizard"`, `"mage"`, `"duelist"` or `"sponge"` switches to one of the custom
+  models (`mapLizard`, `mapMage`, `mapDuelist` or `mapSponge` in `renderer.py`). `body_yaw` turns the lizard's body.
 
 ## Troubleshooting
 

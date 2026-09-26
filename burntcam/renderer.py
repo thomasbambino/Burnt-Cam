@@ -87,7 +87,7 @@ uniform float uBumps;
 uniform float uStretch;
 uniform int   uLimbs;
 uniform float uLimbR;
-uniform int   uShape;       // 0 = two-lobe character (peanut, egg...), 1 = lizard, 2 = dark mage, 3 = duelist
+uniform int   uShape;       // 0 = two-lobe character (peanut, egg...), 1 = lizard, 2 = dark mage, 3 = duelist, 4 = sea sponge
 uniform vec2  uBlink;       // lizard: eyelid closure, x = screen-left eye, y = screen-right eye
 uniform float uJaw;         // lizard: mouth opening 0..1
 uniform float uTongue;      // lizard: tongue sticking out 0..1
@@ -588,11 +588,65 @@ vec3 mapDuelist(vec3 p) {
     return res;
 }
 
+// ---------------------------------------------------------------- sea sponge
+// A yellow, slightly wobbly sponge: white shirt with a red tie, brown square
+// pants with a belt, thin arms from short sleeves, striped socks and shiny
+// shoes. With your face off (or not found) it shows its own cartoon face.
+// Materials: 0 sponge, 22 white, 23 pants, 25 black.
+float spongeBox(vec3 ph) {
+    vec3 q = ph - vec3(0.0, 0.15, 0.0);
+    // Wobbly sides and top, like a real sponge.
+    q.x += 0.018 * sin(q.y * 11.0 + 1.0) * smoothstep(0.35, 0.56, abs(q.x));
+    q.y += 0.015 * sin(q.x * 13.0) * smoothstep(0.45, 0.68, q.y);
+    return sdBox(q, vec3(0.56, 0.68, 0.16)) - 0.06;
+}
+vec3 mapSponge(vec3 p) {
+    vec3 ph = toHead(p);
+    vec3 pb = toBody(p);
+    vec3 qs = pb;
+    qs.x = abs(qs.x);
+    vec3 res = vec3(1e9, 0.0, 0.0);
+    float bound;
+
+    // The sponge (head + chest) and its long nose.
+    bound = length(ph - vec3(0.0, 0.15, 0.0)) - 1.0;
+    if (bound < res.x) {
+        float sponge = min(spongeBox(ph), sdCapsule(ph, vec3(0.0, 0.30, 0.16), vec3(0.0, 0.27, 0.42), 0.048));
+        res = vec3(sponge, 0.0, 1.0);
+    } else {
+        res.x = bound;
+    }
+
+    // Shirt + pants block, sleeves, arms, legs, socks, shoes.
+    bound = length(pb - vec3(0.0, -1.0, 0.0)) - 1.05;
+    if (bound < res.x) {
+        float clothes = sdBox(pb - vec3(0.0, -0.82, 0.0), vec3(0.53, 0.27, 0.15)) - 0.05;
+        clothes = min(clothes, sdCapsule(qs, vec3(0.24, -1.02, 0.0), vec3(0.24, -1.18, 0.0), 0.10));   // pant legs
+        if (clothes < res.x) res = vec3(clothes, pb.y > -0.77 ? 22.0 : 23.0, 0.0);
+        float sleeves = sdEllipsoid(qs - vec3(0.63, -0.62, 0.0), vec3(0.11, 0.10, 0.10));
+        float socks = sdCapsule(qs, vec3(0.24, -1.38, 0.0), vec3(0.24, -1.55, 0.0), 0.045);
+        float white = min(sleeves, socks);
+        if (white < res.x) res = vec3(white, 22.0, 0.0);
+        float wave = 0.04 * sin(uTime * 2.0 + sign(pb.x));
+        vec3 hand = vec3(0.86, -0.96 + wave, 0.10);
+        float yellow = sdCapsule(qs, vec3(0.70, -0.64, 0.0), hand, 0.034);
+        yellow = smin(yellow, sdEllipsoid(qs - hand - vec3(0.02, -0.05, 0.0), vec3(0.065, 0.08, 0.05)), 0.03);
+        yellow = min(yellow, sdCapsule(qs, vec3(0.24, -1.15, 0.0), vec3(0.24, -1.42, 0.0), 0.034));   // legs
+        if (yellow < res.x) res = vec3(yellow, 0.0, 0.0);
+        float shoes = sdEllipsoid(qs - vec3(0.26, -1.595, 0.06), vec3(0.11, 0.07, 0.17));
+        if (shoes < res.x) res = vec3(shoes, 25.0, 0.0);
+    } else {
+        res.x = min(res.x, bound);
+    }
+    return res;
+}
+
 // x = distance, y = material (0 skin/shell, 1 limbs, 2 gloves, 3 eyes), z = head weight
 vec3 map(vec3 p) {
     if (uShape == 1) return mapLizard(p);
     if (uShape == 2) return mapMage(p);
     if (uShape == 3) return mapDuelist(p);
+    if (uShape == 4) return mapSponge(p);
     vec3 ph = toHead(p);
     vec3 pb = toBody(p);
     vec3 rh = uHead.w * uHeadScale * vec3(1.0 - 0.35 * uStretch, 1.0 + uStretch, 1.0 - 0.35 * uStretch);
@@ -833,6 +887,139 @@ vec3 duelistAlbedo(vec3 pos, vec3 n, vec3 m, out float gloss) {
     return vec3(0.96, 0.82, 0.70);                                           // skin
 }
 
+// 2D helpers for the sponge's drawn-on details.
+float segDist(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a, ba = b - a;
+    return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
+}
+float spongePores(vec3 q) {
+    // Distance-like value: < 0 inside one of the round pores.
+    vec3 n = floor(q), f = fract(q);
+    float d = 1.0;
+    for (int k = -1; k <= 1; k++)
+    for (int j = -1; j <= 1; j++)
+    for (int i = -1; i <= 1; i++) {
+        vec3 g = vec3(i, j, k);
+        vec3 h = hash3(n + g);
+        d = min(d, length(g + h - f) - (0.12 + 0.16 * h.x) * step(0.30, h.y));
+    }
+    return d;
+}
+vec3 spongeFace(vec2 f, vec3 col) {
+    // Big eyes with lashes, rosy freckled cheeks and a buck-toothed grin.
+    const vec3 INK = vec3(0.05, 0.04, 0.03);
+    for (int i = 0; i < 2; i++) {
+        float s = i == 0 ? -1.0 : 1.0;
+        vec2 e = vec2(s * 0.21, 0.43);
+        float d = length(f - e);
+        float blink = s < 0.0 ? uBlink.x : uBlink.y;
+        float lid = e.y + 0.19 - 0.40 * blink;
+        vec2 lash0 = e + 0.19 * vec2(s * 0.50, 0.866), lash1 = e + vec2(0.0, 0.19), lash2 = e + 0.19 * vec2(-s * 0.50, 0.866);
+        float lashes = min(segDist(f, lash0, lash0 + vec2(s * 0.05, 0.06)),
+                       min(segDist(f, lash1, lash1 + vec2(0.0, 0.075)), segDist(f, lash2, lash2 + vec2(-s * 0.03, 0.065))));
+        if (blink < 0.6 && lashes < 0.011) col = INK;
+        if (d < 0.19) {
+            vec2 ir = e + vec2(s * 0.02, -0.01);
+            float di = length(f - ir);
+            col = vec3(0.98);
+            if (di < 0.09) col = mix(vec3(0.20, 0.50, 0.90), vec3(0.45, 0.75, 1.0), smoothstep(0.09, 0.03, di));
+            if (abs(di - 0.09) < 0.007) col = vec3(0.10, 0.25, 0.50);
+            if (di < 0.04) col = INK;
+            if (length(f - ir - vec2(-0.02, 0.025)) < 0.014) col = vec3(1.0);
+            if (f.y > lid) col = vec3(1.0, 0.90, 0.25);                       // eyelid
+            if (blink > 0.05 && abs(f.y - lid) < 0.008) col = INK;
+        }
+        if (abs(d - 0.19) < 0.009) col = INK;
+        // Cheek with freckles.
+        vec2 c = vec2(s * 0.37, 0.10);
+        float dc = length(f - c);
+        if (dc < 0.075) {
+            col = vec3(0.95, 0.50, 0.40);
+            for (int k = 0; k < 3; k++) {
+                vec2 fr = c + 0.035 * vec2(cos(2.1 * float(k) + 0.4), sin(2.1 * float(k) + 0.4));
+                if (length(f - fr) < 0.009) col = vec3(0.65, 0.20, 0.15);
+            }
+        }
+        if (abs(dc - 0.075) < 0.006) col = vec3(0.75, 0.30, 0.20);
+    }
+    // Grin: opens with your jaw, tongue pokes out with yours.
+    float jaw = max(uJaw, 0.4 * uTongue);
+    float x = f.x;
+    if (abs(x) < 0.31) {
+        float top = 0.08 + 0.95 * x * x;
+        float bot = top - jaw * 0.30 * (1.0 - pow(x / 0.31, 2.0));
+        if (f.y < top && f.y > bot) {
+            col = vec3(0.40, 0.06, 0.10);
+            if (f.y < bot + 0.09 * jaw) col = vec3(0.95, 0.45, 0.55);          // tongue
+        }
+        if (abs(f.y - top) < 0.010 || (jaw > 0.05 && abs(f.y - bot) < 0.010)) col = INK;
+        // Two big front teeth hanging from the top lip.
+        float tx = abs(x) - 0.042;
+        if (abs(tx) < 0.036 && f.y < top && f.y > top - 0.095) {
+            col = vec3(0.98);
+            if (abs(tx) > 0.029 || f.y < top - 0.088) col = INK;
+        }
+    }
+    if (uTongue > 0.05) {
+        float bot0 = 0.08 - jaw * 0.30;
+        vec2 tc = vec2(0.0, bot0 - 0.07 * uTongue);
+        float dt = length((f - tc) / vec2(0.10, 0.07 + 0.05 * uTongue));
+        if (dt < 1.0) col = mix(vec3(0.95, 0.45, 0.55), vec3(0.80, 0.30, 0.40), step(abs(f.x), 0.006));
+        if (abs(dt - 1.0) < 0.08 && f.y < bot0) col = INK;
+    }
+    // Little dimples at the ends of the smile.
+    for (int i = 0; i < 2; i++) {
+        float s = i == 0 ? -1.0 : 1.0;
+        vec2 dc = vec2(s * 0.34, 0.20);
+        if (abs(length(f - dc) - 0.045) < 0.008 && f.y < 0.20 && s * (f.x - dc.x) < 0.0) col = INK;
+    }
+    return col;
+}
+vec3 spongeAlbedo(vec3 pos, vec3 n, vec3 m, out float gloss) {
+    vec3 ph = toHead(pos);
+    vec3 pb = toBody(pos);
+    gloss = 0.2;
+    if (m.y > 24.5) { gloss = 1.8; return vec3(0.04, 0.04, 0.05); }         // shoes
+    if (m.y > 22.5) {                                                       // pants + belt
+        vec3 c = vec3(0.55, 0.32, 0.12);
+        if (abs(pb.y + 0.80) < 0.025 && abs(pb.x) < 0.58) {
+            c = vec3(0.06, 0.05, 0.05);
+            if (abs(abs(pb.x) - 0.18) < 0.03 || abs(pb.x) < 0.02) c = vec3(0.55, 0.32, 0.12);   // belt loops
+        }
+        return c;
+    }
+    if (m.y > 21.5) {                                                       // white shirt, socks
+        vec3 c = vec3(0.97, 0.97, 0.95);
+        vec3 nb = uBodyInv * n;
+        if (pb.y < -1.3) {                                                  // sock stripes
+            float y = pb.y;
+            if (abs(y + 1.42) < 0.012) c = vec3(0.85, 0.15, 0.15);
+            if (abs(y + 1.46) < 0.012) c = vec3(0.15, 0.35, 0.85);
+        } else if (nb.z > 0.5 && pb.y > -0.78) {
+            // Collar points and a red tie.
+            vec2 f = pb.xy - vec2(0.0, -0.53);
+            float collar = min(segDist(f, vec2(-0.16, 0.0), vec2(-0.05, -0.08)), segDist(f, vec2(0.16, 0.0), vec2(0.05, -0.08)));
+            if (collar < 0.008) c = vec3(0.3);
+            vec2 t = f - vec2(0.0, -0.10);
+            float knot = length(t / vec2(0.035, 0.03));
+            float tie = abs(t.x) - 0.045 * clamp((-t.y) / 0.06, 0.0, 1.0) * (1.0 - clamp((-t.y - 0.08) / 0.07, 0.0, 1.0));
+            if (knot < 1.0 || (tie < 0.0 && t.y < 0.0 && t.y > -0.15)) c = vec3(0.85, 0.12, 0.12);
+        }
+        return c;
+    }
+    // Yellow sponge with olive pores; its own face when yours isn't shown.
+    vec3 c = vec3(1.0, 0.90, 0.25);
+    vec3 q = m.z > 0.5 ? ph : pb;
+    float pore = spongePores(q * 5.5);
+    if (pore < 0.0) c = mix(vec3(0.62, 0.66, 0.10), vec3(0.78, 0.76, 0.16), smoothstep(-0.12, 0.0, pore));
+    vec3 nh = uHeadInv * n;
+    if (m.z > 0.5 && nh.z > 0.6 && ph.z > 0.15 && ph.y > -0.5) {
+        vec3 face = spongeFace(ph.xy, c);
+        c = mix(c, face, 1.0 - uFaceAlpha);
+    }
+    return c;
+}
+
 // -------------------------------------------------------------------- main
 // Fill the frame with an image, cropping (not stretching) to fit.
 vec3 coverSample(sampler2D tex, float aspect) {
@@ -894,7 +1081,9 @@ void main() {
             vec3 emit = vec3(0.0);
             vec3 faceC = vec3(0.0);
 
-            if (uShape == 3) {
+            if (uShape == 4) {
+                alb = spongeAlbedo(pos, n, m, gloss);
+            } else if (uShape == 3) {
                 alb = duelistAlbedo(pos, n, m, gloss);
             } else if (uShape == 2) {
                 alb = mageAlbedo(pos, n, m, gloss, emit);

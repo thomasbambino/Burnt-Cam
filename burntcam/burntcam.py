@@ -309,8 +309,8 @@ class Pose:
         self.jaw += (target_j - self.jaw) * min(1.0, a * 1.5)
         self.tongue += (target_t - self.tongue) * min(1.0, a * 0.8)  # a bit slower = no flicker
 
-    def uniforms(self, t: float, body_follow: float = 0.3) -> dict:
-        Rh = cv2.Rodrigues(self.rvec)[0]
+    def uniforms(self, t: float, body_follow: float = 0.3, head_follow: float = 1.0) -> dict:
+        Rh = rot_scale(cv2.Rodrigues(self.rvec)[0], head_follow)
         Rb = rot_scale(Rh, body_follow)
         neck_w = Rb @ (NECK - PIVOT) + PIVOT
         bob = 0.015 * np.sin(t * 2.0)
@@ -338,7 +338,7 @@ def skin_uniforms(skin: dict) -> dict:
         "uBumps": skin["bumps"],
         "uLimbs": int(skin["limbs"]),
         "uLimbR": skin.get("limb_radius", 0.045),
-        "uShape": {"lizard": 1, "mage": 2, "duelist": 3}.get(skin.get("shape"), 0),
+        "uShape": {"lizard": 1, "mage": 2, "duelist": 3, "sponge": 4}.get(skin.get("shape"), 0),
         "uBodyYaw": float(np.radians(skin.get("body_yaw", 0.0))),
         "uNetScale": skin.get("net_scale", 1.0),
         "uBelly": skin.get("belly", (1.0, 1.0, 1.0)),
@@ -796,7 +796,7 @@ def main(argv=None):
 
             cam_y, zoom, half = framing(skin, state["view"], state["zoom"])
             u = skin_uniforms(skin)
-            u.update(pose.uniforms(t, skin.get("body_follow", 0.3)))
+            u.update(pose.uniforms(t, skin.get("body_follow", 0.3), skin.get("head_follow", 1.0)))
             # Moving around your frame moves the character by the same share of
             # the picture, however close the view is.
             s = min(1.0, half / 1.6)
