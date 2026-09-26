@@ -4,6 +4,7 @@ name: Build Burnt Cam installer
 # "burntcam-latest" release, so there's always a direct download link.
 on:
   push:
+    branches: [main]
     paths:
       - "burntcam/**"
       - ".github/workflows/burntcam-installer.yml"
@@ -13,7 +14,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: burntcam-installer-${{ github.ref }}
+  group: burntcam-installer
   cancel-in-progress: true
 
 jobs:
