@@ -151,7 +151,7 @@ SKINS = [
         "name": "Dark Mage",
         "shape": "mage",                       # custom model (see mapMage in renderer.py)
         "default_mask": "full",
-        "head": (0.0, 0.42, 0.0, 0.24),
+        "head": (0.0, 0.39, 0.0, 0.25),
         "head_scale": (1.0, 1.0, 1.0),
         "body": (0.0, -0.28, 0.0, 0.40),
         "body_scale": (1.0, 1.0, 1.0),
@@ -168,8 +168,8 @@ SKINS = [
         "limbs": False,
         "limb_color": (0.33, 0.14, 0.55),
         "glove_color": (0.86, 0.80, 0.86),
-        "face_size": 0.80,
-        "face_y": 0.42,
+        "face_size": 0.84,
+        "face_y": 0.37,
         "face_tint": (0.92, 0.90, 1.0),        # a touch of the mage's pale, cool skin
         "tint_amount": 0.15,
     },

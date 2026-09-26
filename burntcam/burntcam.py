@@ -403,6 +403,9 @@ def framing(skin: dict, view: str, zoom: float) -> tuple[float, float, float]:
         "chest": (head_y - (head_y - GROUND) * 0.35, 0.18),
         "face": (head_y - head_r * 1.25, 0.15),
     }[view]
+    if view == "face":
+        # Frame the face, not a tall hat above it.
+        top = min(top, head_y + head_r * 1.9)
     top += margin
     half = (top - bottom) / 2.0 / zoom
     center = (top + bottom) / 2.0
@@ -586,10 +589,12 @@ def outlined_text(img, text, org, scale, color, thickness=1):
     cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
 
 
-def draw_hud(img, state, skin_name, fps, warning=None):
+def draw_hud(img, state, skin_name, fps, warning=None, timing=None):
     lines = [f"{skin_name} | {VIEWS[state['view']]} | bg: {background_label(state['bg'])} | "
              f"face: {state['mask']} | {fps:4.1f} fps",
              f"webcam: {state['camera']}"]
+    if timing:
+        lines.append(timing)
     if state["help"]:
         lines += HELP
     y = 26
@@ -732,6 +737,17 @@ def main(argv=None):
         state["mask"] = SKINS[i].get("default_mask", "features")
 
     set_background(state["bg"])
+    # Automatic quality: render scales to step through when the 3D is too slow.
+    max_ss = max(0.5, args.supersample)
+    scales = sorted({s for s in (max_ss, 1.25, 1.0, 0.8, 0.67, 0.5) if s <= max_ss}, reverse=True)
+    scale_i = 0
+    renderer.set_supersample(scales[0])
+    ms = {"webcam": 0.0, "tracking": 0.0, "3D": 0.0}
+    last_quality_change = time.perf_counter()
+
+    def track_ms(key, start):
+        ms[key] = 0.9 * ms[key] + 0.1 * (time.perf_counter() - start) * 1000.0
+
     seq, frames = 0, 0
     t0 = last = time.perf_counter()
     last_seen = -1e9
@@ -740,7 +756,9 @@ def main(argv=None):
     out = None
     try:
         while True:
+            t_wait = time.perf_counter()
             frame, seq = source.read(seq)
+            track_ms("webcam", t_wait)
             if frame is None:
                 continue
             now = time.perf_counter()
@@ -750,7 +768,9 @@ def main(argv=None):
             fps = 0.9 * fps + 0.1 / max(dt, 1e-3)
             skin = SKINS[state["skin"]]
 
+            t_track = time.perf_counter()
             face = tracker.process(frame, int(t * 1000))
+            track_ms("tracking", t_track)
             renderer.upload_camera(frame)
             if face is not None:
                 last_seen = t
@@ -791,7 +811,19 @@ def main(argv=None):
                 "uBgTop": (0.36, 0.50, 0.72),
                 "uBgBot": (0.93, 0.83, 0.70),
             })
+            t_render = time.perf_counter()
             out = renderer.render(u)
+            track_ms("3D", t_render)
+            # Keep the 3D under ~28 ms (smooth 30 fps): step the render
+            # resolution down when it's slower, back up when there's headroom.
+            if not args.input and now - last_quality_change > 2.0:
+                if ms["3D"] > 28.0 and scale_i < len(scales) - 1:
+                    scale_i += 1
+                elif ms["3D"] < 11.0 and scale_i > 0:
+                    scale_i -= 1
+                if scales[scale_i] != renderer.supersample:
+                    renderer.set_supersample(scales[scale_i])
+                    last_quality_change = now
             if vcam is not None:
                 vcam.send(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
 
@@ -807,7 +839,12 @@ def main(argv=None):
                 if t - last_seen > 1.5:
                     warning = ("No face found - face the camera in good light"
                                + (", or press K to try another webcam" if len(cams) > 1 else ""))
-                draw_hud(view, state, skin["name"], fps, warning)
+                if warning is None and not args.input and ms["webcam"] > 45.0 and fps < 24:
+                    warning = ("Your webcam is sending few frames - add light, or turn off "
+                               "low-light compensation in the webcam software")
+                timing = (f"time per frame: webcam {ms['webcam']:.0f} ms | tracking {ms['tracking']:.0f} ms"
+                          f" | 3D {ms['3D']:.0f} ms (quality {renderer.supersample:.2f}x)")
+                draw_hud(view, state, skin["name"], fps, warning, timing)
                 cv2.imshow(window, view)
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord("q"), 27):

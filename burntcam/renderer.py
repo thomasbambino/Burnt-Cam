@@ -327,7 +327,7 @@ const vec3 MG_STAFF = vec3(-0.44, 0.0, 0.33);
 const vec3 MG_LOOP = vec3(-0.44, 1.04, 0.33);
 float mageHat(vec3 ph) {
     float helm = sdEllipsoid(ph - vec3(0.0, 0.52, -0.03), vec3(0.27, 0.30, 0.28));
-    helm = smax(helm, -sdEllipsoid(ph - vec3(0.0, 0.36, 0.22), vec3(0.19, 0.27, 0.24)), 0.02);
+    helm = smax(helm, -sdEllipsoid(ph - vec3(0.0, 0.37, 0.22), vec3(0.21, 0.31, 0.26)), 0.02);
     const vec3 H0 = vec3(0.0, 0.62, -0.04), H1 = vec3(0.0, 0.97, -0.07), H2 = vec3(0.03, 1.26, -0.03);
     const vec3 H3 = vec3(0.10, 1.48, 0.05), H4 = vec3(0.21, 1.61, 0.15);
     float cone = sdRoundCone(ph, H0, H1, 0.255, 0.19);
@@ -341,7 +341,7 @@ float mageHat(vec3 ph) {
     hat = smin(hat, sdRoundCone(qf, vec3(-0.06, 0.58, 0.0), vec3(-0.36, 1.32, 0.0), 0.17, 0.005) / 3.0, 0.03);
     vec3 qh = ph;
     qh.x = abs(qh.x);
-    return smin(hat, sdEllipsoid(qh - vec3(0.20, 0.33, 0.05), vec3(0.06, 0.22, 0.13)), 0.04);  // cheek guards
+    return smin(hat, sdEllipsoid(qh - vec3(0.225, 0.33, 0.04), vec3(0.06, 0.22, 0.13)), 0.04);  // cheek guards
 }
 float magePauldron(vec3 qs, out float edge) {
     // Two big curved plates per shoulder, the upper one flaring up and out.
@@ -355,70 +355,91 @@ float magePauldron(vec3 qs, out float edge) {
     return min(min(d1, d2), length(qs - vec3(0.31, -0.08, 0.0)) - 0.12);
 }
 vec3 mapMage(vec3 p) {
+    // Evaluated in four groups (head+hat, upper body, lower body, staff). A
+    // group is skipped when its bounding sphere is farther than the nearest
+    // surface found so far, which keeps this detailed model fast.
     vec3 ph = toHead(p);
     vec3 pb = toBody(p);
     vec3 qs = pb;
     qs.x = abs(qs.x);
+    vec3 res = vec3(1e9, 0.0, 0.0);
+    float bound;
 
     // Head, hat and a dark fringe of hair framing the face.
-    vec3 res = vec3(sdEllipsoid(ph - vec3(0.0, 0.42, 0.0), vec3(0.20, 0.26, 0.22)), 0.0, 1.0);
-    float hat = mageHat(ph);
-    if (hat < res.x) res = vec3(hat, 6.0, 1.0);
-    vec3 qh = ph;
-    qh.x = abs(qh.x);
-    float hair = smin(sdEllipsoid(qh - vec3(0.19, 0.52, 0.12), vec3(0.05, 0.11, 0.07)),
-                      sdEllipsoid(qh - vec3(0.18, 0.36, 0.11), vec3(0.04, 0.14, 0.05)), 0.04);
-    if (hair < res.x) res = vec3(hair, 13.0, 1.0);
+    bound = length(ph - vec3(0.0, 0.85, -0.10)) - 0.95;
+    if (bound < res.x) {
+        res = vec3(sdEllipsoid(ph - vec3(0.0, 0.39, 0.0), vec3(0.21, 0.29, 0.22)), 0.0, 1.0);
+        float hat = mageHat(ph);
+        if (hat < res.x) res = vec3(hat, 6.0, 1.0);
+        vec3 qh = ph;
+        qh.x = abs(qh.x);
+        float hair = smin(sdEllipsoid(qh - vec3(0.215, 0.58, 0.10), vec3(0.045, 0.10, 0.06)),
+                          sdEllipsoid(qh - vec3(0.21, 0.42, 0.09), vec3(0.035, 0.13, 0.05)), 0.04);
+        if (hair < res.x) res = vec3(hair, 13.0, 1.0);
+    } else {
+        res.x = bound;
+    }
 
-    // Slim armored body: collar, chest, narrow waist, legs with pointed boots.
-    float armor = sdRoundCone(pb, vec3(0.0, -0.02, 0.0), vec3(0.0, 0.20, -0.01), 0.15, 0.14);
-    armor = smin(armor, sdEllipsoid(pb - vec3(0.0, -0.22, 0.0), vec3(0.27, 0.30, 0.17)), 0.06);
-    armor = smin(armor, sdEllipsoid(pb - vec3(0.0, -0.60, 0.0), vec3(0.20, 0.18, 0.15)), 0.10);
-    float legs = smin(sdRoundCone(qs, vec3(0.11, -0.68, 0.0), vec3(0.15, -1.13, 0.05), 0.10, 0.07),
-                      sdRoundCone(qs, vec3(0.15, -1.13, 0.05), vec3(0.15, -1.55, 0.0), 0.07, 0.055), 0.03);
-    legs = smin(legs, sdRoundCone(qs, vec3(0.15, -1.58, -0.03), vec3(0.17, -1.645, 0.27), 0.07, 0.006), 0.04);
-    armor = min(armor, legs);
-    // Arms: the right one (screen left) grips the staff, the left hangs down.
     float wave = 0.03 * sin(uTime * 1.7);
-    float arms = smin(sdRoundCone(pb, vec3(-0.30, -0.08, 0.0), vec3(-0.46, -0.40, 0.10), 0.075, 0.06),
-                      sdRoundCone(pb, vec3(-0.46, -0.40, 0.10), vec3(-0.44, -0.31, 0.26), 0.06, 0.05), 0.03);
-    arms = min(arms, smin(sdRoundCone(pb, vec3(0.30, -0.08, 0.0), vec3(0.42, -0.46, 0.03), 0.075, 0.06),
-                          sdRoundCone(pb, vec3(0.42, -0.46, 0.03), vec3(0.47, -0.75, 0.10 + wave), 0.06, 0.05), 0.03));
-    armor = min(armor, arms);
-    if (armor < res.x) res = vec3(armor, 11.0, 0.0);
+    // Upper body: collar, chest, arms, hands, pauldrons, wrist cuffs.
+    bound = length(pb - vec3(0.0, -0.20, 0.0)) - 0.95;
+    if (bound < res.x) {
+        float armor = sdRoundCone(pb, vec3(0.0, -0.02, 0.0), vec3(0.0, 0.20, -0.01), 0.15, 0.14);
+        armor = smin(armor, sdEllipsoid(pb - vec3(0.0, -0.22, 0.0), vec3(0.27, 0.30, 0.17)), 0.06);
+        armor = smin(armor, sdEllipsoid(pb - vec3(0.0, -0.60, 0.0), vec3(0.20, 0.18, 0.15)), 0.10);
+        // The right arm (screen left) grips the staff, the left hangs down.
+        armor = min(armor, smin(sdRoundCone(pb, vec3(-0.30, -0.08, 0.0), vec3(-0.46, -0.40, 0.10), 0.075, 0.06),
+                                sdRoundCone(pb, vec3(-0.46, -0.40, 0.10), vec3(-0.44, -0.31, 0.26), 0.06, 0.05), 0.03));
+        armor = min(armor, smin(sdRoundCone(pb, vec3(0.30, -0.08, 0.0), vec3(0.42, -0.46, 0.03), 0.075, 0.06),
+                                sdRoundCone(pb, vec3(0.42, -0.46, 0.03), vec3(0.47, -0.75, 0.10 + wave), 0.06, 0.05), 0.03));
+        if (armor < res.x) res = vec3(armor, 11.0, 0.0);
+        float edge;
+        float pa = magePauldron(qs, edge);
+        if (pa < res.x) res = vec3(pa, 12.0, 0.0);
+        float cuffs = min(sdTorus(pb - vec3(-0.45, -0.36, 0.20), 0.06, 0.015),
+                          sdTorus(pb - vec3(0.46, -0.70, 0.09 + wave), 0.058, 0.015));
+        if (cuffs < res.x) res = vec3(cuffs, 7.0, 0.0);
+        float hands = min(sdEllipsoid(pb - vec3(-0.44, -0.30, 0.33), vec3(0.065, 0.075, 0.06)),
+                          sdEllipsoid(pb - vec3(0.48, -0.82, 0.12 + wave), vec3(0.05, 0.08, 0.045)));
+        if (hands < res.x) res = vec3(hands, 0.0, 0.0);
+    } else {
+        res.x = min(res.x, bound);
+    }
 
-    float edge;
-    float pa = magePauldron(qs, edge);
-    if (pa < res.x) res = vec3(pa, 12.0, 0.0);
-
-    // Spiral knee guards and wrist cuffs.
-    float trim = sdTorus((qs - vec3(0.16, -1.12, 0.115)).xzy, 0.045, 0.014);
-    trim = min(trim, sdTorus(pb - vec3(-0.45, -0.36, 0.20), 0.06, 0.015));
-    trim = min(trim, sdTorus(pb - vec3(0.46, -0.70, 0.09 + wave), 0.058, 0.015));
-    if (trim < res.x) res = vec3(trim, 7.0, 0.0);
-
-    // Robe: flares from the waist and opens at the front to show the legs.
-    float ang = atan(pb.x, pb.z);                        // 0 = straight ahead
-    float robe = sdRoundCone(pb, vec3(0.0, -0.58, 0.0), vec3(0.0, -1.50, -0.05), 0.23, 0.50);
-    robe += 0.02 * sin(ang * 9.0 + 0.5) * smoothstep(-0.7, -1.5, pb.y);   // folds
-    robe = abs(robe + 0.02) - 0.02;                      // a cloth shell, not a solid cone
-    robe = max(robe, -(abs(ang) - mix(0.15, 0.95, smoothstep(-0.62, -1.35, pb.y))));
-    robe = max(robe, (GROUND + 0.05) - pb.y);
-    if (robe < res.x) res = vec3(robe, 10.0, 0.0);
-
-    // Hands.
-    float hands = min(sdEllipsoid(pb - vec3(-0.44, -0.30, 0.33), vec3(0.065, 0.075, 0.06)),
-                      sdEllipsoid(pb - vec3(0.48, -0.82, 0.12 + wave), vec3(0.05, 0.08, 0.045)));
-    if (hands < res.x) res = vec3(hands, 0.0, 0.0);
+    // Lower body: armored legs with pointed boots, knee spirals, and the robe
+    // flaring from the waist, open at the front.
+    bound = length(pb - vec3(0.0, -1.15, 0.0)) - 0.75;
+    if (bound < res.x) {
+        float legs = smin(sdRoundCone(qs, vec3(0.11, -0.68, 0.0), vec3(0.15, -1.13, 0.05), 0.10, 0.07),
+                          sdRoundCone(qs, vec3(0.15, -1.13, 0.05), vec3(0.15, -1.55, 0.0), 0.07, 0.055), 0.03);
+        legs = smin(legs, sdRoundCone(qs, vec3(0.15, -1.58, -0.03), vec3(0.17, -1.645, 0.27), 0.07, 0.006), 0.04);
+        if (legs < res.x) res = vec3(legs, 11.0, 0.0);
+        float knees = sdTorus((qs - vec3(0.16, -1.12, 0.115)).xzy, 0.045, 0.014);
+        if (knees < res.x) res = vec3(knees, 7.0, 0.0);
+        float ang = atan(pb.x, pb.z);                    // 0 = straight ahead
+        float robe = sdRoundCone(pb, vec3(0.0, -0.58, 0.0), vec3(0.0, -1.50, -0.05), 0.23, 0.50);
+        robe += 0.02 * sin(ang * 9.0 + 0.5) * smoothstep(-0.7, -1.5, pb.y);   // folds
+        robe = abs(robe + 0.02) - 0.02;                  // a cloth shell, not a solid cone
+        robe = max(robe, -(abs(ang) - mix(0.15, 0.95, smoothstep(-0.62, -1.35, pb.y))));
+        robe = max(robe, (GROUND + 0.05) - pb.y);
+        if (robe < res.x) res = vec3(robe, 10.0, 0.0);
+    } else {
+        res.x = min(res.x, bound);
+    }
 
     // Teal staff with a leaf-shaped loop, a glowing orb and a spike on top.
-    float staff = sdCapsule(pb, vec3(MG_STAFF.x, GROUND + 0.04, MG_STAFF.z), vec3(MG_STAFF.x, 0.92, MG_STAFF.z), 0.024);
-    vec3 qo = pb - MG_LOOP;
-    staff = min(staff, sdTorus(vec3(qo.x, qo.z, qo.y * 0.62), 0.085, 0.017));
-    staff = min(staff, sdRoundCone(pb, MG_LOOP + vec3(0.0, 0.13, 0.0), MG_LOOP + vec3(0.0, 0.32, 0.0), 0.03, 0.004));
-    if (staff < res.x) res = vec3(staff, 9.0, 0.0);
-    float orb = length(qo) - 0.042;
-    if (orb < res.x) res = vec3(orb, 8.0, 0.0);
+    bound = sdCapsule(pb, vec3(MG_STAFF.x, GROUND, MG_STAFF.z), vec3(MG_STAFF.x, 1.40, MG_STAFF.z), 0.16);
+    if (bound < res.x) {
+        float staff = sdCapsule(pb, vec3(MG_STAFF.x, GROUND + 0.04, MG_STAFF.z), vec3(MG_STAFF.x, 0.92, MG_STAFF.z), 0.024);
+        vec3 qo = pb - MG_LOOP;
+        staff = min(staff, sdTorus(vec3(qo.x, qo.z, qo.y * 0.62), 0.085, 0.017));
+        staff = min(staff, sdRoundCone(pb, MG_LOOP + vec3(0.0, 0.13, 0.0), MG_LOOP + vec3(0.0, 0.32, 0.0), 0.03, 0.004));
+        if (staff < res.x) res = vec3(staff, 9.0, 0.0);
+        float orb = length(qo) - 0.042;
+        if (orb < res.x) res = vec3(orb, 8.0, 0.0);
+    } else {
+        res.x = min(res.x, bound);
+    }
     return res;
 }
 
@@ -737,6 +758,7 @@ class Renderer:
     def __init__(self, width: int, height: int, supersample: float = 1.5):
         self.ctx = ctx = _create_context()
         self.size = (int(width), int(height))
+        self.supersample = supersample
         self.ss_size = (max(1, int(width * supersample)), max(1, int(height * supersample)))
 
         self.cam_tex = None
@@ -759,9 +781,7 @@ class Renderer:
 
         self.scene_prog = ctx.program(vertex_shader=FULLSCREEN_VS, fragment_shader=SCENE_FS)
         self.scene_vao = ctx.vertex_array(self.scene_prog, [])
-        self.scene_tex = ctx.texture(self.ss_size, 3)
-        self.scene_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
-        self.scene_fbo = ctx.framebuffer([self.scene_tex])
+        self._make_scene_target()
 
         self.resolve_prog = ctx.program(vertex_shader=FULLSCREEN_VS, fragment_shader=RESOLVE_FS)
         self.resolve_vao = ctx.vertex_array(self.resolve_prog, [])
@@ -775,6 +795,22 @@ class Renderer:
         self.bg_aspect = 16 / 9
         self.unwrap_prog["uCam"].value = 2
         self.resolve_prog["uSrc"].value = 3
+
+    def _make_scene_target(self):
+        self.scene_tex = self.ctx.texture(self.ss_size, 3)
+        self.scene_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
+        self.scene_fbo = self.ctx.framebuffer([self.scene_tex])
+
+    def set_supersample(self, supersample: float):
+        """Change the internal render resolution (quality vs. speed)."""
+        if abs(supersample - self.supersample) < 1e-3:
+            return
+        self.supersample = supersample
+        w, h = self.size
+        self.ss_size = (max(1, int(w * supersample)), max(1, int(h * supersample)))
+        self.scene_fbo.release()
+        self.scene_tex.release()
+        self._make_scene_target()
 
     # ------------------------------------------------------------------ input
     def upload_camera(self, frame_bgr: np.ndarray):

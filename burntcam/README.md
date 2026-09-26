@@ -152,7 +152,13 @@ entries and change:
   drive the device.
 * **The camera shows up black in Zoom.** Start Burnt Cam first, then select the camera in
   Zoom. If it's still black, restart Zoom.
-* **Low FPS.** Use `--supersample 1`, or `--width 960 --height 540`.
+* **Low FPS.** The preview's third line shows where the time goes on each frame:
+  * **webcam** is high (over about 40 ms): your webcam is sending few frames. Most webcams
+    slow down in dim light, so add light or turn off low-light compensation (called
+    "RightLight" in Logitech G HUB / Logitech Capture).
+  * **3D** is high: Burnt Cam lowers its render quality by itself (see "quality" on that
+    line). On a very slow GPU, try `--width 960 --height 540` as well.
+  * **tracking** is high: the face tracker runs on your CPU, so close other heavy programs.
 * **The preview doesn't use your webcam.** The picture-in-picture in the bottom-right corner
   shows what Burnt Cam sees, and the name of the webcam it's using is at the top. Press
   **K** to switch webcams, or run `"Burnt Cam.bat" --list-cameras` and pick one
