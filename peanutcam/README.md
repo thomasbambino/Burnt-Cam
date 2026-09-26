@@ -15,10 +15,11 @@ webcam ──► MediaPipe face tracking ──► 3D peanut (rendered on your G
   glued to the peanut even when you turn your head.
 * Opening your mouth makes the head stretch a little (squash and stretch).
 * It comes with five skins: **Burnt Peanut**, **Golden Peanut**, **Egg**, **Potato** and
-  **Lizard**. The lizard is a four-legged, sea-green cartoon inspired by Tom Lizard from
-  Pixar's *Hoppers*. It has a big rounded head, beady black eyes on the sides of its head,
-  and a long tail. Your real mouth goes on its snout, and its eyelids blink when you blink.
-  You can add more skins in `skins.py`.
+  **Lizard**. The lizard is a cute, upright cartoon inspired by Tom Lizard from Pixar's
+  *Hoppers*. It has a soft green bean-shaped body, big googly eyes, a wide smile and a
+  curly tail. By default it's a *puppet*: its mouth opens (tongue and all) when you open
+  yours, its eyes blink when you blink, and its head turns when you turn. Press **M** to
+  put your real face on it instead. You can add more skins in `skins.py`.
 * There are three backgrounds: studio gradient, green screen (for OBS chroma key), or your
   real room.
 
@@ -45,7 +46,7 @@ webcam ──► MediaPipe face tracking ──► 3D peanut (rendered on your G
 | Key       | Action                                                           |
 |-----------|------------------------------------------------------------------|
 | 1–5 / N   | Switch skin                                                      |
-| M         | Face mask: `features` (eyes, brows, mouth) or `full` (whole face) |
+| M         | Your face on the character: `features` (eyes, brows, mouth), `full` (whole face) or `off` (puppet mode). Each skin starts with its own default. |
 | B         | Background: studio / green / webcam                              |
 | C         | Calibrate: look straight ahead and press it                      |
 | R         | Reset calibration                                                |
@@ -64,7 +65,7 @@ Pass options to `run.bat`, for example `run.bat --skin egg --bg green --zoom 1.6
 |---------------------|------------|-----------------------------------------------------------------------|
 | `--camera N`        | 0          | Which webcam to use. Try 1 or 2 if the wrong one opens.               |
 | `--skin`            | 0          | Skin index or name (`burntpeanut`, `goldenpeanut`, `egg`, `potato`, `lizard`) |
-| `--mask`            | features   | `features` or `full`                                                  |
+| `--mask`            | per skin   | `features`, `full` or `off` (puppet mode)                             |
 | `--bg`              | studio     | `studio`, `green` or `webcam`                                         |
 | `--zoom`            | 1.25       | 1 = full body with room around it, 2 = head and shoulders             |
 | `--follow`          | 0.6        | How much the peanut moves around the frame with you (0 = stays put)   |
@@ -86,11 +87,12 @@ entries and change:
 * `base`, `dark`, `line`, `burn`, `net`: the colors and how burnt the shell looks.
 * `face_size`, `face_y`: how big your face is and where it sits on the head.
 * `face_tint`, `tint_amount`: tint your skin toward the character's color so it blends in.
-* Optional extras: `belly` / `belly_amount`, `net_scale` (scale size), `mouth_line` (a
-  drawn-on grin), `mouth_only` (show only your mouth), `zoom` / `camera_y` (framing) and
-  `body_follow` (how much the body turns with your head).
-* `"shape": "lizard"` switches to the four-legged lizard model, which has its own `eye` and
-  `body_yaw` settings. See the Lizard entry in `skins.py`.
+* Optional extras: `belly` / `belly_amount`, `net_scale` (scale size), `mouth_only` (the
+  features mode shows only your mouth), `zoom` / `camera_y` (framing) and `body_follow`
+  (how much the body turns with your head).
+* `default_mask`: the face mode the skin starts in (`features`, `full` or `off`).
+* `"shape": "lizard"` switches to the cartoon lizard model, which has its own body. It's
+  defined in `mapLizard` in `renderer.py`. `body_yaw` turns its body.
 
 ## Troubleshooting
 

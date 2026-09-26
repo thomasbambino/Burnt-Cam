@@ -9,11 +9,11 @@ Shape units: the character stands roughly 2.8 units tall, feet at y = -1.6.
 Colors are 0..1 RGB.
 
 Optional keys: "net_scale" (size of the scale/netting cells), "belly" +
-"belly_amount", "mouth_line" (strength of a drawn-on grin), "limb_radius",
-"body_follow" (how much the body turns with your head), "zoom" / "camera_y"
-(framing), "mouth_only" (features mask shows only your mouth).
-"shape": "lizard" switches to the four-legged lizard rig, which uses "eye"
-and "body_yaw" instead of the head/body lobes.
+"belly_amount", "limb_radius", "body_follow" (how much the body turns with
+your head), "zoom" / "camera_y" (framing), "mouth_only" (features mask shows
+only your mouth), "default_mask" (features / full / off).
+"shape": "lizard" switches to the cartoon lizard model, which has its own
+body (see mapLizard in renderer.py) and uses "body_yaw".
 """
 
 SKINS = [
@@ -106,40 +106,40 @@ SKINS = [
         "tint_amount": 0.30,
     },
     {
-        # An original cartoon lizard in the spirit of Tom Lizard from Pixar's
-        # "Hoppers": a small, huggable sea-green lizard with beady black eyes on
-        # the sides of his head that drift apart. Your mouth goes on his snout,
-        # and his eyelids blink when you blink.
+        # A cute cartoon lizard in the spirit of Tom Lizard from Pixar's
+        # "Hoppers": a soft, bean-shaped green body, big googly eyes on top of
+        # the head, a wide smile, thin arms, short bow legs and a curly tail.
+        # By default it's a puppet: your face drives it (mouth opens with
+        # yours, eyes blink with yours, head turns with yours). Press M to put
+        # your real face on it instead.
         "name": "Lizard",
-        "shape": "lizard",                     # four-legged lizard rig (see renderer.py)
-        "head": (0.0, 0.06, 0.06, 0.50),       # used to place the face decal
+        "shape": "lizard",                     # custom lizard model (see renderer.py)
+        "default_mask": "off",
+        "head": (0.0, 0.40, 0.0, 0.30),        # used to place the face decal (M)
         "head_scale": (1.0, 1.0, 1.0),
-        "body": (0.0, -0.80, 0.0, 0.40),
+        "body": (0.0, -0.74, 0.0, 0.40),
         "body_scale": (1.0, 1.0, 1.0),
         "blend": 0.15,
         "bumps": 0.0,
-        "eye": (0.43, 0.21, 0.21, 0.14),      # eyeball center (+x side) and radius
-        "body_yaw": 40,                        # body trails off to the back-right
-        "body_follow": 0.12,                   # the body barely turns with your head
+        "body_yaw": 12,                        # a slight three-quarter turn
+        "body_follow": 0.25,
         "mouth_only": True,                    # "features" mask shows just your mouth
-        "base": (0.36, 0.72, 0.52),            # sea green
-        "dark": (0.16, 0.44, 0.33),            # darker mottling
-        "line": (0.26, 0.58, 0.42),            # fine scale edges
-        "burn": 0.35,
-        "net": 0.35,
-        "net_scale": 3.5,
-        "gloss": 0.45,
-        "belly": (0.82, 0.90, 0.66),           # pale throat and belly
-        "belly_amount": 0.85,
-        "mouth_line": 0.8,
+        "base": (0.47, 0.70, 0.43),            # soft minty green
+        "dark": (0.12, 0.22, 0.12),            # nostrils
+        "line": (0.38, 0.60, 0.36),            # tail scales
+        "burn": 0.0,
+        "net": 0.45,
+        "net_scale": 1.0,
+        "gloss": 0.22,
+        "belly": (0.68, 0.82, 0.55),           # paler belly and throat
+        "belly_amount": 0.8,
         "limbs": False,
-        "limb_color": (0.36, 0.72, 0.52),
-        "glove_color": (0.36, 0.72, 0.52),
-        "face_size": 1.45,
-        "face_y": 0.17,
-        "face_tint": (0.85, 0.95, 0.85),
+        "limb_color": (0.47, 0.70, 0.43),
+        "glove_color": (0.47, 0.70, 0.43),
+        "face_size": 0.95,
+        "face_y": 0.42,
+        "face_tint": (0.85, 0.95, 0.80),
         "tint_amount": 0.25,
-        "zoom": 1.10,                          # frame the low, wide lizard
-        "camera_y": -0.25,
+        "camera_y": -0.20,
     },
 ]

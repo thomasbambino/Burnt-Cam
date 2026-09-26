@@ -23,7 +23,7 @@ from tracker import FaceTracker
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BACKGROUNDS = ["studio", "green", "webcam"]
-MASKS = ["features", "full"]
+MASKS = ["features", "full", "off"]
 
 # Image space (x right, y down, z away) -> render space (x right, y up, z toward viewer).
 FLIP = np.diag([1.0, -1.0, -1.0])
@@ -131,6 +131,7 @@ class Pose:
         self.rvec = np.zeros(3)
         self.offset = np.zeros(3)
         self.stretch = 0.0
+        self.jaw = 0.0
         self.blink = np.zeros(2)
         self.last_raw = None
 
@@ -152,15 +153,18 @@ class Pose:
             target_o = np.array([(cx - 0.5) * 2.2, -(cy - 0.45) * 0.8, 0.0]) * self.follow
             target_s = 0.08 * np.clip(face.jaw_open * 1.4 - 0.1, 0.0, 1.0)
             target_b = np.array(face.blink)
+            target_j = float(np.clip(face.jaw_open * 1.6 - 0.08, 0.0, 1.0))
         else:
             target_r = self.rvec * 0.9
             target_o = self.offset * 0.9
             target_s = 0.0
             target_b = np.zeros(2)
+            target_j = 0.0
         self.rvec += (target_r - self.rvec) * a
         self.offset += (target_o - self.offset) * a
         self.stretch += (target_s - self.stretch) * min(1.0, a * 1.5)
         self.blink += (target_b - self.blink) * min(1.0, a * 2.5)  # blinks are fast
+        self.jaw += (target_j - self.jaw) * min(1.0, a * 1.5)
 
     def uniforms(self, t: float, body_follow: float = 0.3) -> dict:
         Rh = cv2.Rodrigues(self.rvec)[0]
@@ -175,17 +179,12 @@ class Pose:
             "uPivot": tuple(PIVOT),
             "uOffset": tuple(self.offset + np.array([0.0, bob, 0.0])),
             "uStretch": float(self.stretch),
+            "uJaw": float(self.jaw),
             "uBlink": tuple(float(b) for b in self.blink),
         }
 
 
-# Where the mouth lands in the face texture (0..1), measured from the
-# tracker's front-facing layout. Used to line up the drawn-on grin.
-MOUTH_TEX_Y = 0.67
-
-
 def skin_uniforms(skin: dict) -> dict:
-    mouth_y = skin["face_y"] + (0.5 - MOUTH_TEX_Y) * skin["face_size"]
     return {
         "uHead": skin["head"],
         "uHeadScale": skin["head_scale"],
@@ -196,13 +195,11 @@ def skin_uniforms(skin: dict) -> dict:
         "uLimbs": int(skin["limbs"]),
         "uLimbR": skin.get("limb_radius", 0.045),
         "uShape": 1 if skin.get("shape") == "lizard" else 0,
-        "uEye": skin.get("eye", (0.0, 0.0, 0.0, 0.0)),
         "uBodyYaw": float(np.radians(skin.get("body_yaw", 0.0))),
         "uCamY": skin.get("camera_y", 0.0),
         "uNetScale": skin.get("net_scale", 1.0),
         "uBelly": skin.get("belly", (1.0, 1.0, 1.0)),
         "uBellyAmt": skin.get("belly_amount", 0.0),
-        "uMouthLine": (mouth_y, 0.18, skin.get("mouth_line", 0.0)),
         "uBase": skin["base"],
         "uDark": skin["dark"],
         "uLine": skin["line"],
@@ -248,7 +245,7 @@ def open_virtual_camera(args):
 # ----------------------------------------------------------------------- HUD
 HELP = [
     "1-9 / N : skin",
-    "M : face mask (features / full)",
+    "M : your face on it: features / full / off",
     "B : background",
     "C : calibrate (look straight, press C)",
     "R : reset calibration",
@@ -290,8 +287,10 @@ def parse_args(argv=None):
     ap.add_argument("--height", type=int, default=720, help="output height")
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--skin", default="0", help="skin index or name (see skins.py)")
-    ap.add_argument("--mask", choices=MASKS, default="features",
-                    help="features = your eyes, brows and mouth; full = whole face")
+    ap.add_argument("--mask", choices=MASKS, default=None,
+                    help="features = your eyes, brows and mouth; full = whole face; "
+                         "off = puppet mode, your face only animates the character "
+                         "(default: whatever suits the skin)")
     ap.add_argument("--bg", choices=BACKGROUNDS, default="studio")
     ap.add_argument("--zoom", type=float, default=1.25,
                     help="camera zoom: 1 = full body with room, 2 = head and shoulders")
@@ -324,7 +323,7 @@ def main(argv=None):
     args = parse_args(argv)
     state = {
         "skin": pick_skin(args.skin),
-        "mask": args.mask,
+        "mask": args.mask or SKINS[pick_skin(args.skin)].get("default_mask", "features"),
         "bg": args.bg,
         "help": True,
         "pip": True,
@@ -382,7 +381,7 @@ def main(argv=None):
             u.update({
                 "uTime": t,
                 "uZoom": args.zoom * skin.get("zoom", 1.0),
-                "uFaceAlpha": face_alpha,
+                "uFaceAlpha": 0.0 if state["mask"] == "off" else face_alpha,
                 "uBg": BACKGROUNDS.index(state["bg"]),
                 "uBgTop": (0.36, 0.50, 0.72),
                 "uBgBot": (0.93, 0.83, 0.70),
@@ -406,10 +405,14 @@ def main(argv=None):
                     break
                 if cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) < 1:
                     break
+                new_skin = None
                 if ord("1") <= key <= ord("9") and key - ord("1") < len(SKINS):
-                    state["skin"] = key - ord("1")
+                    new_skin = key - ord("1")
                 elif key == ord("n"):
-                    state["skin"] = (state["skin"] + 1) % len(SKINS)
+                    new_skin = (state["skin"] + 1) % len(SKINS)
+                if new_skin is not None:
+                    state["skin"] = new_skin
+                    state["mask"] = SKINS[new_skin].get("default_mask", "features")
                 elif key == ord("m"):
                     state["mask"] = MASKS[(MASKS.index(state["mask"]) + 1) % len(MASKS)]
                 elif key == ord("b"):
