@@ -36,7 +36,7 @@ webcam ──► MediaPipe face tracking ──► 3D peanut (rendered on your G
 ## Install (easiest)
 
 1. Download **BurntCamSetup.exe** from the
-   [latest release](https://github.com/thomasbambino/zoom/releases/tag/burntcam-latest).
+   [latest release](https://github.com/thomasbambino/Burnt-Cam/releases/tag/burntcam-latest).
 2. Run it. If Windows says "Windows protected your PC", click **More info → Run anyway**.
    The installer isn't code-signed, so Windows shows this for it.
 3. Click through the setup and say **Yes** when Windows asks for permission. That's the
