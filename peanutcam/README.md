@@ -15,9 +15,10 @@ webcam ──► MediaPipe face tracking ──► 3D peanut (rendered on your G
   glued to the peanut even when you turn your head.
 * Opening your mouth makes the head stretch a little (squash and stretch).
 * It comes with five skins: **Burnt Peanut**, **Golden Peanut**, **Egg**, **Potato** and
-  **Lizard**. The lizard is a sea-green cartoon inspired by Tom Lizard from Pixar's
-  *Hoppers*. Your eyes sit on its bulging eye domes, and it has a curled tail, a spiky crest
-  and three-toed hands and feet. You can add more skins in `skins.py`.
+  **Lizard**. The lizard is a four-legged, sea-green cartoon inspired by Tom Lizard from
+  Pixar's *Hoppers*. It has a big rounded head, beady black eyes on the sides of its head,
+  and a long tail. Your real mouth goes on its snout, and its eyelids blink when you blink.
+  You can add more skins in `skins.py`.
 * There are three backgrounds: studio gradient, green screen (for OBS chroma key), or your
   real room.
 
@@ -85,9 +86,11 @@ entries and change:
 * `base`, `dark`, `line`, `burn`, `net`: the colors and how burnt the shell looks.
 * `face_size`, `face_y`: how big your face is and where it sits on the head.
 * `face_tint`, `tint_amount`: tint your skin toward the character's color so it blends in.
-* Optional extras, as used by the Lizard skin: `eye_domes` (bulging eyes placed under your
-  eyes), `tail` (a tail and a spiky back crest), `toes`, `belly` / `belly_amount`,
-  `net_scale` (scale size) and `mouth_line` (a drawn-on grin).
+* Optional extras: `belly` / `belly_amount`, `net_scale` (scale size), `mouth_line` (a
+  drawn-on grin), `mouth_only` (show only your mouth), `zoom` / `camera_y` (framing) and
+  `body_follow` (how much the body turns with your head).
+* `"shape": "lizard"` switches to the four-legged lizard model, which has its own `eye` and
+  `body_yaw` settings. See the Lizard entry in `skins.py`.
 
 ## Troubleshooting
 

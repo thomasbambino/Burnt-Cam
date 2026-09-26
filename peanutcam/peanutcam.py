@@ -131,6 +131,7 @@ class Pose:
         self.rvec = np.zeros(3)
         self.offset = np.zeros(3)
         self.stretch = 0.0
+        self.blink = np.zeros(2)
         self.last_raw = None
 
     def calibrate(self):
@@ -150,17 +151,20 @@ class Pose:
             cx, cy = face.center
             target_o = np.array([(cx - 0.5) * 2.2, -(cy - 0.45) * 0.8, 0.0]) * self.follow
             target_s = 0.08 * np.clip(face.jaw_open * 1.4 - 0.1, 0.0, 1.0)
+            target_b = np.array(face.blink)
         else:
             target_r = self.rvec * 0.9
             target_o = self.offset * 0.9
             target_s = 0.0
+            target_b = np.zeros(2)
         self.rvec += (target_r - self.rvec) * a
         self.offset += (target_o - self.offset) * a
         self.stretch += (target_s - self.stretch) * min(1.0, a * 1.5)
+        self.blink += (target_b - self.blink) * min(1.0, a * 2.5)  # blinks are fast
 
-    def uniforms(self, t: float) -> dict:
+    def uniforms(self, t: float, body_follow: float = 0.3) -> dict:
         Rh = cv2.Rodrigues(self.rvec)[0]
-        Rb = rot_scale(Rh, 0.3)
+        Rb = rot_scale(Rh, body_follow)
         neck_w = Rb @ (NECK - PIVOT) + PIVOT
         bob = 0.015 * np.sin(t * 2.0)
         return {
@@ -171,27 +175,13 @@ class Pose:
             "uPivot": tuple(PIVOT),
             "uOffset": tuple(self.offset + np.array([0.0, bob, 0.0])),
             "uStretch": float(self.stretch),
+            "uBlink": tuple(float(b) for b in self.blink),
         }
 
 
-# Where the eyes and mouth corners land in the face texture (0..1), measured
-# from the tracker's frontal layout. Used to line up eye domes and the grin.
-EYE_TEX = (0.14, 0.35)    # (distance from center, y)
+# Where the mouth lands in the face texture (0..1), measured from the
+# tracker's front-facing layout. Used to line up the drawn-on grin.
 MOUTH_TEX_Y = 0.67
-
-
-def eye_dome(skin: dict) -> tuple:
-    """Put bulging eyes under where the user's eyes are painted, nudged apart."""
-    r = skin.get("eye_domes", 0.0)
-    if not r:
-        return (0.0, 0.0, 0.0, 0.0)
-    cx, cy, cz, rad = skin["head"]
-    rx, ry, rz = (rad * s for s in skin["head_scale"])
-    x = cx + EYE_TEX[0] * skin["face_size"] * 1.15
-    y = skin["face_y"] + (0.5 - EYE_TEX[1]) * skin["face_size"]
-    inside = max(0.0, 1.0 - ((x - cx) / rx) ** 2 - ((y - cy) / ry) ** 2)
-    z = cz + rz * np.sqrt(inside) - 0.35 * r
-    return (x, y, z, r)
 
 
 def skin_uniforms(skin: dict) -> dict:
@@ -205,13 +195,14 @@ def skin_uniforms(skin: dict) -> dict:
         "uBumps": skin["bumps"],
         "uLimbs": int(skin["limbs"]),
         "uLimbR": skin.get("limb_radius", 0.045),
-        "uEyeDome": eye_dome(skin),
-        "uTail": int(skin.get("tail", False)),
-        "uToes": int(skin.get("toes", False)),
+        "uShape": 1 if skin.get("shape") == "lizard" else 0,
+        "uEye": skin.get("eye", (0.0, 0.0, 0.0, 0.0)),
+        "uBodyYaw": float(np.radians(skin.get("body_yaw", 0.0))),
+        "uCamY": skin.get("camera_y", 0.0),
         "uNetScale": skin.get("net_scale", 1.0),
         "uBelly": skin.get("belly", (1.0, 1.0, 1.0)),
         "uBellyAmt": skin.get("belly_amount", 0.0),
-        "uMouthLine": (mouth_y, 0.35, skin.get("mouth_line", 0.0)),
+        "uMouthLine": (mouth_y, 0.18, skin.get("mouth_line", 0.0)),
         "uBase": skin["base"],
         "uDark": skin["dark"],
         "uLine": skin["line"],
@@ -369,7 +360,13 @@ def main(argv=None):
             renderer.upload_camera(frame)
             if face is not None:
                 last_seen = t
-                mask = face.mask_features if state["mask"] == "features" else face.mask_full
+                skin = SKINS[state["skin"]]
+                if state["mask"] == "full":
+                    mask = face.mask_full
+                elif skin.get("mouth_only"):
+                    mask = face.mask_mouth
+                else:
+                    mask = face.mask_features
                 renderer.update_face(face, mask, tracker.topology.triangles)
             # Fade the face in/out instead of popping when tracking is lost.
             target = 1.0 if t - last_seen < 0.25 else 0.0
@@ -379,11 +376,12 @@ def main(argv=None):
                 face_alpha += (target - face_alpha) * min(1.0, dt * 10.0)
             pose.update(face, dt)
 
-            u = skin_uniforms(SKINS[state["skin"]])
-            u.update(pose.uniforms(t))
+            skin = SKINS[state["skin"]]
+            u = skin_uniforms(skin)
+            u.update(pose.uniforms(t, skin.get("body_follow", 0.3)))
             u.update({
                 "uTime": t,
-                "uZoom": args.zoom,
+                "uZoom": args.zoom * skin.get("zoom", 1.0),
                 "uFaceAlpha": face_alpha,
                 "uBg": BACKGROUNDS.index(state["bg"]),
                 "uBgTop": (0.36, 0.50, 0.72),

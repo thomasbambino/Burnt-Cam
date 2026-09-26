@@ -10,6 +10,7 @@ The tracker turns every webcam frame into a ``FaceState``:
 * ``rotation`` - 3x3 head rotation (image space: x right, y down, z away).
 * ``center``   - face center in normalized image coordinates.
 * ``jaw_open`` - 0..1 blendshape, used for a little squash & stretch.
+* ``blink``    - (screen-left eye, screen-right eye) closure, 0 open .. 1 shut.
 """
 
 from __future__ import annotations
@@ -141,8 +142,10 @@ class FaceState:
     center: np.ndarray       # (2,) normalized face center in the frame
     size: float              # eye-corner distance / frame width
     jaw_open: float
+    blink: tuple             # (screen-left eye, screen-right eye), 0 open .. 1 shut
     mask_full: np.ndarray    # (MASK, MASK) uint8 face-oval mask in tex space
     mask_features: np.ndarray  # eyes + brows + mouth mask in tex space
+    mask_mouth: np.ndarray     # mouth only
 
 
 def head_frame(p: np.ndarray) -> np.ndarray:
@@ -227,16 +230,33 @@ class FaceTracker:
             center=(center[:2] / np.array([w, h])).astype(np.float32),
             size=float(eye_dist / w),
             jaw_open=jaw,
+            blink=self._blink(tex),
             mask_full=self._mask(tex, [topo.oval], [], erode=0.035),
             mask_features=self._mask(
                 tex,
                 [],
                 [topo.left_eye, topo.right_eye, topo.lips, topo.left_brow, topo.right_brow],
             ),
+            mask_mouth=self._mask(tex, [], [topo.lips], pad=0.25),
         )
 
+    def _blink(self, tex) -> tuple:
+        """Eye closure from the eyelid gap in the front-facing layout.
+
+        Measured geometrically (not from blendshapes) so "left" always means
+        the eye on the left of the (mirrored) picture.
+        """
+        out = []
+        for idx in (self.topology.left_eye, self.topology.right_eye):
+            pts = tex[idx]
+            w = np.ptp(pts[:, 0]) + 1e-6
+            ratio = np.ptp(pts[:, 1]) / w
+            out.append((float(pts[:, 0].mean()), float(np.clip((0.20 - ratio) / 0.12, 0.0, 1.0))))
+        out.sort()
+        return out[0][1], out[1][1]
+
     @staticmethod
-    def _mask(tex, loops, hulls, erode=0.0) -> np.ndarray:
+    def _mask(tex, loops, hulls, erode=0.0, pad=1.0) -> np.ndarray:
         S = MASK_TEX_SIZE
         m = np.zeros((S, S), np.uint8)
         px = lambda idx: np.round(tex[idx] * S).astype(np.int32)
@@ -246,7 +266,7 @@ class FaceTracker:
             hull = cv2.convexHull(px(idx))
             cv2.fillConvexPoly(m, hull, 255, lineType=cv2.LINE_AA)
             # Pad features so a little skin frames each eye / the mouth.
-            cv2.polylines(m, [hull], True, 255, thickness=max(2, S // 40), lineType=cv2.LINE_AA)
+            cv2.polylines(m, [hull], True, 255, thickness=max(1, int(pad * S / 40)), lineType=cv2.LINE_AA)
         if erode > 0:
             k = max(1, int(erode * S))
             m = cv2.erode(m, np.ones((k, k), np.uint8))

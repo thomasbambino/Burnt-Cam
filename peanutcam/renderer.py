@@ -70,6 +70,7 @@ out vec4 fragColor;
 uniform vec2  uRes;
 uniform float uTime;
 uniform float uZoom;
+uniform float uCamY;
 uniform vec3  uOffset;
 uniform mat3  uHeadInv;
 uniform vec3  uNeck;
@@ -86,13 +87,14 @@ uniform float uBumps;
 uniform float uStretch;
 uniform int   uLimbs;
 uniform float uLimbR;
-uniform vec4  uEyeDome;     // xyz = right dome center (head space, mirrored), w = radius (0 = none)
-uniform int   uTail;
-uniform int   uToes;
+uniform int   uShape;       // 0 = two-lobe character (peanut, egg...), 1 = lizard
+uniform vec4  uEye;         // lizard: xyz = eyeball center (head space, +x side), w = radius
+uniform vec2  uBlink;       // lizard: eyelid closure, x = screen-left eye, y = screen-right eye
+uniform float uBodyYaw;     // lizard: body turned this far (radians) toward back-right
 uniform float uNetScale;
 uniform vec3  uBelly;
 uniform float uBellyAmt;
-uniform vec3  uMouthLine;   // x = y of mouth corners, y = curve, z = strength (0 = none)
+uniform vec3  uMouthLine;   // x = mouth height, y = rise toward the back, z = strength
 
 uniform vec3  uBase;
 uniform vec3  uDark;
@@ -147,16 +149,8 @@ float sdRoundCone(vec3 p, vec3 a, vec3 b, float r1, float r2) {
     if (sign(y) * a2 * y2 < k) return sqrt(x2 + y2) * il2 - r1;
     return (sqrt(x2 * a2 * il2) + y * rr) * il2 - r1;
 }
-float sdTail(vec3 pb) {
-    // A tapered tail that sweeps out behind the body and curls up at the side.
-    vec3 t0 = vec3(0.05, uBody.y - 0.30, -0.30), t1 = vec3(0.35, GROUND + 0.14, -0.75);
-    vec3 t2 = vec3(0.95, GROUND + 0.22, -0.85), t3 = vec3(1.20, GROUND + 0.85, -0.75);
-    float tail = sdRoundCone(pb, t0, t1, 0.22, 0.13);
-    tail = smin(tail, sdRoundCone(pb, t1, t2, 0.13, 0.07), 0.06);
-    return smin(tail, sdRoundCone(pb, t2, t3, 0.07, 0.03), 0.04);
-}
 float sdToes(vec3 q, vec3 c, vec3 dir, float len, float r) {
-    // Three splayed toes starting at c, pointing roughly along dir.
+    // Three splayed toes with round toe pads, starting at c, pointing along dir.
     vec3 side = normalize(cross(dir, vec3(0.0, 1.0, 0.0)) + vec3(0.0, 0.0, 1e-4));
     float d = 1e9;
     for (int i = -1; i <= 1; i++) {
@@ -173,35 +167,81 @@ float bumps(vec3 p) {
     return sin(p.x * 17.0 + sin(p.y * 7.0)) * sin(p.y * 19.0 + 1.3) * sin(p.z * 16.0 + sin(p.x * 5.0));
 }
 
-// x = distance, y = material (0 shell, 1 limbs, 2 gloves), z = head weight
+// ------------------------------------------------------------------ lizard
+// Body-local frame: the body is turned by uBodyYaw so it runs off to the
+// back-right while the head faces the camera.
+vec3 lizardLocal(vec3 pb) {
+    float c = cos(uBodyYaw), s = sin(uBodyYaw);
+    return vec3(pb.x * c + pb.z * s, pb.y, -pb.x * s + pb.z * c);
+}
+float lizardTail(vec3 q) {
+    vec3 t0 = vec3(0.0, -1.30, -1.20), t1 = vec3(0.05, -1.52, -1.85);
+    vec3 t2 = vec3(0.55, -1.58, -2.35), t3 = vec3(1.15, -1.58, -2.30), t4 = vec3(1.45, -1.50, -1.90);
+    float d = sdRoundCone(q, t0, t1, 0.24, 0.15);
+    d = smin(d, sdRoundCone(q, t1, t2, 0.15, 0.10), 0.05);
+    d = smin(d, sdRoundCone(q, t2, t3, 0.10, 0.06), 0.04);
+    return smin(d, sdRoundCone(q, t3, t4, 0.06, 0.025), 0.03);
+}
+float lizardLeg(vec3 q, vec3 a, vec3 b, vec3 c, vec3 toe) {
+    // Cheap bound: skip the whole leg when we're far away from it.
+    vec3 mid = (a + b + c) / 3.0;
+    if (length(q - mid) > 0.8) return length(q - mid) - 0.6;
+    float d = smin(sdRoundCone(q, a, b, 0.11, 0.08), sdRoundCone(q, b, c, 0.08, 0.06), 0.05);
+    return smin(d, sdToes(q, c, toe, 0.20, 0.028), 0.05);
+}
+vec3 mapLizard(vec3 p) {
+    vec3 ph = toHead(p);
+    vec3 pb = toBody(p);
+    vec3 q = lizardLocal(pb);
+
+    // Big, rounded head with a short blunt snout ("huggable", not realistic).
+    vec3 hs = vec3(1.0 - 0.3 * uStretch, 1.0 + uStretch, 1.0);
+    float head = sdEllipsoid(ph - vec3(0.0, 0.06, 0.06), vec3(0.56, 0.43, 0.53) * hs);
+    head = smin(head, sdEllipsoid(ph - vec3(0.0, -0.05, 0.42), vec3(0.40, 0.27, 0.38) * hs), 0.14);
+
+    // Beady black eyes on the sides of the head, pointing outward (wall-eyed),
+    // sitting in skin sockets with an upper lid that closes when you blink.
+    vec3 qe = ph;
+    float side = sign(qe.x);
+    qe.x = abs(qe.x);
+    vec3 E = uEye.xyz;
+    float re = uEye.w;
+    vec3 outward = normalize(E - vec3(0.0, 0.0, 0.05));
+    head = smin(head, length(qe - (E - outward * re * 0.45)) - re * 1.05, 0.05);
+    float blink = side < 0.0 ? uBlink.x : uBlink.y;
+    float lid = max(length(qe - E) - re * 1.12, (E.y + re * (0.95 - 2.2 * blink)) - qe.y);
+    head = min(head, lid);
+    float eye = length(qe - E) - re;
+
+    // Chest raised on the front legs, body and tail trailing behind.
+    float body = sdEllipsoid(q - vec3(0.0, -0.66, 0.0), vec3(0.38, 0.38, 0.40));
+    body = smin(body, sdRoundCone(q, vec3(0.0, -0.75, -0.10), vec3(0.0, -1.26, -1.00), 0.34, 0.28), 0.15);
+    body = smin(body, sdRoundCone(pb, vec3(0.0, -0.60, 0.0), vec3(0.0, -0.25, 0.06), 0.33, 0.32), 0.12);
+    body = smin(body, lizardTail(q), 0.10);
+
+    vec3 qm = q;
+    qm.x = abs(qm.x);
+    float legs = lizardLeg(qm, vec3(0.24, -0.76, 0.08), vec3(0.57, -1.06, 0.14), vec3(0.60, -1.57, 0.22),
+                           normalize(vec3(0.35, -0.05, 1.0)));
+    legs = min(legs, lizardLeg(qm, vec3(0.24, -1.30, -0.98), vec3(0.62, -1.18, -0.82), vec3(0.66, -1.58, -0.78),
+                                normalize(vec3(0.8, -0.05, 0.6))));
+    body = smin(body, legs, 0.08);
+
+    float d = smin(head, body, 0.16);
+    vec3 res = vec3(d, 0.0, clamp(0.5 + (body - head) * 4.0, 0.0, 1.0));
+    if (eye < res.x) res = vec3(eye, 3.0, 1.0);
+    return res;
+}
+
+// x = distance, y = material (0 skin/shell, 1 limbs, 2 gloves, 3 eyes), z = head weight
 vec3 map(vec3 p) {
+    if (uShape == 1) return mapLizard(p);
     vec3 ph = toHead(p);
     vec3 pb = toBody(p);
     vec3 rh = uHead.w * uHeadScale * vec3(1.0 - 0.35 * uStretch, 1.0 + uStretch, 1.0 - 0.35 * uStretch);
     float dh = sdEllipsoid(ph - uHead.xyz, rh);
     float db = sdEllipsoid(pb - uBody.xyz, uBody.w * uBodyScale);
-    if (uEyeDome.w > 0.0) {
-        vec3 qe = ph; qe.x = abs(qe.x);
-        dh = smin(dh, length(qe - uEyeDome.xyz) - uEyeDome.w, 0.08);
-    }
     float d = smin(dh, db, uBlend);
-    if (uTail == 1) {
-        d = smin(d, sdTail(pb), 0.12);
-        // Little spikes running down the back of the head and body.
-        vec3 qc = ph - uHead.xyz;
-        float crest = 1e9;
-        for (int i = 0; i < 4; i++) {
-            float a = 0.35 + 0.42 * float(i);
-            vec3 c = vec3(0.0, sin(a) * uHead.w * uHeadScale.y, -cos(a) * uHead.w * uHeadScale.z * 0.35 - 0.05);
-            crest = min(crest, sdEllipsoid(qc - c, vec3(0.025, 0.09, 0.06)));
-        }
-        vec3 qb = pb - uBody.xyz;
-        for (int i = 0; i < 3; i++) {
-            float y = 0.45 - 0.35 * float(i);
-            crest = min(crest, sdEllipsoid(qb - vec3(0.0, y, -uBody.w * uBodyScale.z * 0.92), vec3(0.025, 0.08, 0.08)));
-        }
-        d = smin(d, crest, 0.03);
-    }
     float hw = clamp(0.5 + (db - dh) * 4.0, 0.0, 1.0);
     if (uBumps > 0.0) d += uBumps * mix(bumps(pb), bumps(ph), hw);
     vec3 res = vec3(d, 0.0, hw);
@@ -215,17 +255,12 @@ vec3 map(vec3 p) {
         float wave = 0.06 * sin(uTime * 2.2 + side * 1.3);
         vec3 hand = vec3(br.x + 0.36, uBody.y - 0.32 + wave, 0.2);
         float arm = sdCapsule(q, shoulder, hand, uLimbR);
-        float glove = uToes == 1
-            ? smin(length(q - hand) - uLimbR * 1.2, sdToes(q, hand, normalize(vec3(0.6, -0.8, 0.4)), 0.12, 0.022), 0.03)
-            : sdEllipsoid(q - hand, vec3(0.11, 0.12, 0.10));
+        float glove = sdEllipsoid(q - hand, vec3(0.11, 0.12, 0.10));
         float footY = GROUND + 0.07;
         vec3 hip = vec3(0.22, uBody.y - br.y * 0.8, 0.0);
         vec3 ankle = vec3(0.28, footY + 0.04, 0.02);
         float leg = sdCapsule(q, hip, ankle, uLimbR * 1.1);
-        float shoe = uToes == 1
-            ? smin(sdEllipsoid(q - vec3(0.30, footY, 0.06), vec3(0.10, 0.06, 0.12)),
-                   sdToes(q, vec3(0.30, footY - 0.02, 0.12), normalize(vec3(0.3, -0.05, 1.0)), 0.16, 0.025), 0.03)
-            : sdEllipsoid(q - vec3(0.30, footY, 0.12), vec3(0.14, 0.08, 0.21));
+        float shoe = sdEllipsoid(q - vec3(0.30, footY, 0.12), vec3(0.14, 0.08, 0.21));
         float limb = min(min(arm, leg), shoe);
         if (limb < res.x) res = vec3(limb, 1.0, 0.0);
         if (glove < res.x) res = vec3(glove, 2.0, 0.0);
@@ -300,7 +335,7 @@ vec3 shell(vec3 q) {
 void main() {
     vec2 frag = v_uv * uRes;
     vec2 p = (2.0 * frag - uRes) / uRes.y;
-    vec3 ro = vec3(0.0, mix(-0.2, 0.5, clamp(uZoom - 1.0, 0.0, 1.0)), 5.2);
+    vec3 ro = vec3(0.0, mix(-0.2, 0.5, clamp(uZoom - 1.0, 0.0, 1.0)) + uCamY, 5.2);
     vec3 rd = normalize(vec3(p, -2.75 * uZoom));
 
     vec3 col;
@@ -326,7 +361,8 @@ void main() {
     // Bounding sphere around the character to skip empty pixels quickly.
     vec3 oc = ro - (uOffset + vec3(0.0, -0.25, 0.0));
     float b = dot(oc, rd);
-    float h = b * b - (dot(oc, oc) - 2.1 * 2.1);
+    float bR = uShape == 1 ? 3.2 : 2.1;
+    float h = b * b - (dot(oc, oc) - bR * bR);
     if (h > 0.0) {
         h = sqrt(h);
         float t = max(0.0, -b - h), tmax = -b + h;
@@ -351,19 +387,16 @@ void main() {
                 vec3 pb = toBody(pos);
                 alb = shell(mix(pb, ph, m.z));
                 if (uBellyAmt > 0.0) {
-                    vec3 nb = uBodyInv * n;
-                    float belly = (1.0 - m.z) * smoothstep(0.35, 0.8, nb.z)
-                                * smoothstep(uBody.y + 0.55, uBody.y + 0.2, pb.y);
-                    if (uTail == 1) belly *= smoothstep(0.02, 0.12, sdTail(pb));
-                    alb = mix(alb, uBelly, belly * uBellyAmt);
+                    // Lighter throat and belly on the undersides.
+                    vec3 nl = m.z > 0.5 ? uHeadInv * n : uBodyInv * n;
+                    alb = mix(alb, uBelly, smoothstep(-0.05, -0.55, nl.y) * uBellyAmt);
                 }
-                if (uMouthLine.z > 0.0) {
-                    float ax = abs(ph.x - uHead.x);
-                    float my = uMouthLine.x + uMouthLine.y * ax * ax;
-                    float line = (1.0 - smoothstep(0.008, 0.02, abs(ph.y - my)))
-                               * smoothstep(0.08, 0.14, ax) * (1.0 - smoothstep(0.42, 0.5, ax))
-                               * step(0.0, ph.z) * m.z;
-                    alb = mix(alb, uDark * 0.5, line * uMouthLine.z);
+                if (uMouthLine.z > 0.0 && m.z > 0.5) {
+                    // Wide lizard grin: from the corners of your mouth back along the jaw.
+                    float my = uMouthLine.x + uMouthLine.y * max(0.0, 0.75 - ph.z);
+                    float line = (1.0 - smoothstep(0.006, 0.016, abs(ph.y - my)))
+                               * smoothstep(0.10, 0.16, abs(ph.x)) * step(0.05, ph.z);
+                    alb = mix(alb, uDark * 0.45, line * uMouthLine.z);
                 }
                 vec3 nh = uHeadInv * n;
                 vec2 fuv = vec2(0.5 + (ph.x - uHead.x) / uFaceSize, 0.5 - (ph.y - uFaceY) / uFaceSize);
@@ -373,8 +406,10 @@ void main() {
                 }
             } else if (m.y < 1.5) {
                 alb = uLimbCol; gloss = 0.5;
-            } else {
+            } else if (m.y < 2.5) {
                 alb = uGloveCol; gloss = 0.3;
+            } else {
+                alb = vec3(0.012, 0.012, 0.016); gloss = 3.0;   // glossy black eyes
             }
 
             vec3 L = normalize(vec3(-0.5, 0.7, 0.6));
