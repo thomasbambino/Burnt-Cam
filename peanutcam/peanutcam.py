@@ -174,7 +174,28 @@ class Pose:
         }
 
 
+# Where the eyes and mouth corners land in the face texture (0..1), measured
+# from the tracker's frontal layout. Used to line up eye domes and the grin.
+EYE_TEX = (0.14, 0.35)    # (distance from center, y)
+MOUTH_TEX_Y = 0.67
+
+
+def eye_dome(skin: dict) -> tuple:
+    """Put bulging eyes under where the user's eyes are painted, nudged apart."""
+    r = skin.get("eye_domes", 0.0)
+    if not r:
+        return (0.0, 0.0, 0.0, 0.0)
+    cx, cy, cz, rad = skin["head"]
+    rx, ry, rz = (rad * s for s in skin["head_scale"])
+    x = cx + EYE_TEX[0] * skin["face_size"] * 1.15
+    y = skin["face_y"] + (0.5 - EYE_TEX[1]) * skin["face_size"]
+    inside = max(0.0, 1.0 - ((x - cx) / rx) ** 2 - ((y - cy) / ry) ** 2)
+    z = cz + rz * np.sqrt(inside) - 0.35 * r
+    return (x, y, z, r)
+
+
 def skin_uniforms(skin: dict) -> dict:
+    mouth_y = skin["face_y"] + (0.5 - MOUTH_TEX_Y) * skin["face_size"]
     return {
         "uHead": skin["head"],
         "uHeadScale": skin["head_scale"],
@@ -183,6 +204,14 @@ def skin_uniforms(skin: dict) -> dict:
         "uBlend": skin["blend"],
         "uBumps": skin["bumps"],
         "uLimbs": int(skin["limbs"]),
+        "uLimbR": skin.get("limb_radius", 0.045),
+        "uEyeDome": eye_dome(skin),
+        "uTail": int(skin.get("tail", False)),
+        "uToes": int(skin.get("toes", False)),
+        "uNetScale": skin.get("net_scale", 1.0),
+        "uBelly": skin.get("belly", (1.0, 1.0, 1.0)),
+        "uBellyAmt": skin.get("belly_amount", 0.0),
+        "uMouthLine": (mouth_y, 0.35, skin.get("mouth_line", 0.0)),
         "uBase": skin["base"],
         "uDark": skin["dark"],
         "uLine": skin["line"],

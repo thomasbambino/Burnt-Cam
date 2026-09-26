@@ -85,6 +85,14 @@ uniform float uBlend;
 uniform float uBumps;
 uniform float uStretch;
 uniform int   uLimbs;
+uniform float uLimbR;
+uniform vec4  uEyeDome;     // xyz = right dome center (head space, mirrored), w = radius (0 = none)
+uniform int   uTail;
+uniform int   uToes;
+uniform float uNetScale;
+uniform vec3  uBelly;
+uniform float uBellyAmt;
+uniform vec3  uMouthLine;   // x = y of mouth corners, y = curve, z = strength (0 = none)
 
 uniform vec3  uBase;
 uniform vec3  uDark;
@@ -104,12 +112,13 @@ uniform float uFaceY;
 uniform vec3  uTint;
 uniform float uTintAmt;
 
+const float GROUND = -1.66;
+
 uniform int   uBg;          // 0 studio gradient, 1 green screen, 2 webcam
 uniform float uCamAspect;
 uniform vec3  uBgTop;
 uniform vec3  uBgBot;
 
-const float GROUND = -1.66;
 
 // ---------------------------------------------------------------- SDF helpers
 float smin(float a, float b, float k) {
@@ -126,6 +135,37 @@ float sdCapsule(vec3 p, vec3 a, vec3 b, float r) {
     float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
     return length(pa - ba * h) - r;
 }
+float sdRoundCone(vec3 p, vec3 a, vec3 b, float r1, float r2) {
+    vec3 ba = b - a;
+    float l2 = dot(ba, ba), rr = r1 - r2, a2 = l2 - rr * rr, il2 = 1.0 / l2;
+    vec3 pa = p - a;
+    float y = dot(pa, ba), z = y - l2;
+    vec3 xv = pa * l2 - ba * y;
+    float x2 = dot(xv, xv), y2 = y * y * l2, z2 = z * z * l2;
+    float k = sign(rr) * rr * rr * x2;
+    if (sign(z) * a2 * z2 > k) return sqrt(x2 + z2) * il2 - r2;
+    if (sign(y) * a2 * y2 < k) return sqrt(x2 + y2) * il2 - r1;
+    return (sqrt(x2 * a2 * il2) + y * rr) * il2 - r1;
+}
+float sdTail(vec3 pb) {
+    // A tapered tail that sweeps out behind the body and curls up at the side.
+    vec3 t0 = vec3(0.05, uBody.y - 0.30, -0.30), t1 = vec3(0.35, GROUND + 0.14, -0.75);
+    vec3 t2 = vec3(0.95, GROUND + 0.22, -0.85), t3 = vec3(1.20, GROUND + 0.85, -0.75);
+    float tail = sdRoundCone(pb, t0, t1, 0.22, 0.13);
+    tail = smin(tail, sdRoundCone(pb, t1, t2, 0.13, 0.07), 0.06);
+    return smin(tail, sdRoundCone(pb, t2, t3, 0.07, 0.03), 0.04);
+}
+float sdToes(vec3 q, vec3 c, vec3 dir, float len, float r) {
+    // Three splayed toes starting at c, pointing roughly along dir.
+    vec3 side = normalize(cross(dir, vec3(0.0, 1.0, 0.0)) + vec3(0.0, 0.0, 1e-4));
+    float d = 1e9;
+    for (int i = -1; i <= 1; i++) {
+        vec3 tip = c + normalize(dir + side * 0.55 * float(i)) * len;
+        d = min(d, sdCapsule(q, c, tip, r));
+        d = min(d, length(q - tip) - r * 1.5);
+    }
+    return d;
+}
 vec3 toBody(vec3 p) { return uBodyInv * (p - uOffset - uPivot) + uPivot; }
 vec3 toHead(vec3 p) { return uHeadInv * (p - uOffset - uNeckW) + uNeck; }
 
@@ -140,7 +180,28 @@ vec3 map(vec3 p) {
     vec3 rh = uHead.w * uHeadScale * vec3(1.0 - 0.35 * uStretch, 1.0 + uStretch, 1.0 - 0.35 * uStretch);
     float dh = sdEllipsoid(ph - uHead.xyz, rh);
     float db = sdEllipsoid(pb - uBody.xyz, uBody.w * uBodyScale);
+    if (uEyeDome.w > 0.0) {
+        vec3 qe = ph; qe.x = abs(qe.x);
+        dh = smin(dh, length(qe - uEyeDome.xyz) - uEyeDome.w, 0.08);
+    }
     float d = smin(dh, db, uBlend);
+    if (uTail == 1) {
+        d = smin(d, sdTail(pb), 0.12);
+        // Little spikes running down the back of the head and body.
+        vec3 qc = ph - uHead.xyz;
+        float crest = 1e9;
+        for (int i = 0; i < 4; i++) {
+            float a = 0.35 + 0.42 * float(i);
+            vec3 c = vec3(0.0, sin(a) * uHead.w * uHeadScale.y, -cos(a) * uHead.w * uHeadScale.z * 0.35 - 0.05);
+            crest = min(crest, sdEllipsoid(qc - c, vec3(0.025, 0.09, 0.06)));
+        }
+        vec3 qb = pb - uBody.xyz;
+        for (int i = 0; i < 3; i++) {
+            float y = 0.45 - 0.35 * float(i);
+            crest = min(crest, sdEllipsoid(qb - vec3(0.0, y, -uBody.w * uBodyScale.z * 0.92), vec3(0.025, 0.08, 0.08)));
+        }
+        d = smin(d, crest, 0.03);
+    }
     float hw = clamp(0.5 + (db - dh) * 4.0, 0.0, 1.0);
     if (uBumps > 0.0) d += uBumps * mix(bumps(pb), bumps(ph), hw);
     vec3 res = vec3(d, 0.0, hw);
@@ -153,13 +214,18 @@ vec3 map(vec3 p) {
         vec3 shoulder = vec3(br.x * 0.8, uBody.y + 0.12, 0.05);
         float wave = 0.06 * sin(uTime * 2.2 + side * 1.3);
         vec3 hand = vec3(br.x + 0.36, uBody.y - 0.32 + wave, 0.2);
-        float arm = sdCapsule(q, shoulder, hand, 0.045);
-        float glove = sdEllipsoid(q - hand, vec3(0.11, 0.12, 0.10));
+        float arm = sdCapsule(q, shoulder, hand, uLimbR);
+        float glove = uToes == 1
+            ? smin(length(q - hand) - uLimbR * 1.2, sdToes(q, hand, normalize(vec3(0.6, -0.8, 0.4)), 0.12, 0.022), 0.03)
+            : sdEllipsoid(q - hand, vec3(0.11, 0.12, 0.10));
         float footY = GROUND + 0.07;
         vec3 hip = vec3(0.22, uBody.y - br.y * 0.8, 0.0);
         vec3 ankle = vec3(0.28, footY + 0.04, 0.02);
-        float leg = sdCapsule(q, hip, ankle, 0.05);
-        float shoe = sdEllipsoid(q - vec3(0.30, footY, 0.12), vec3(0.14, 0.08, 0.21));
+        float leg = sdCapsule(q, hip, ankle, uLimbR * 1.1);
+        float shoe = uToes == 1
+            ? smin(sdEllipsoid(q - vec3(0.30, footY, 0.06), vec3(0.10, 0.06, 0.12)),
+                   sdToes(q, vec3(0.30, footY - 0.02, 0.12), normalize(vec3(0.3, -0.05, 1.0)), 0.16, 0.025), 0.03)
+            : sdEllipsoid(q - vec3(0.30, footY, 0.12), vec3(0.14, 0.08, 0.21));
         float limb = min(min(arm, leg), shoe);
         if (limb < res.x) res = vec3(limb, 1.0, 0.0);
         if (glove < res.x) res = vec3(glove, 2.0, 0.0);
@@ -223,7 +289,7 @@ vec3 shell(vec3 q) {
     vec3 c = mix(uBase, uDark, clamp(burn + 0.6 * speck, 0.0, 1.0));
     c *= 0.88 + 0.24 * fbm(q * 6.0);
     if (uNet > 0.0) {
-        float e = voronoiEdge(q * vec3(9.0, 6.0, 9.0) + 0.15 * fbm(q * 4.0));
+        float e = voronoiEdge(q * vec3(9.0, 6.0, 9.0) * uNetScale + 0.15 * fbm(q * 4.0));
         float net = (1.0 - smoothstep(0.02, 0.09, e)) * uNet;
         c = mix(c, uLine * mix(1.0, 0.35, burn), net);
     }
@@ -282,7 +348,23 @@ void main() {
             vec3 faceC = vec3(0.0);
 
             if (m.y < 0.5) {
-                alb = shell(mix(toBody(pos), ph, m.z));
+                vec3 pb = toBody(pos);
+                alb = shell(mix(pb, ph, m.z));
+                if (uBellyAmt > 0.0) {
+                    vec3 nb = uBodyInv * n;
+                    float belly = (1.0 - m.z) * smoothstep(0.35, 0.8, nb.z)
+                                * smoothstep(uBody.y + 0.55, uBody.y + 0.2, pb.y);
+                    if (uTail == 1) belly *= smoothstep(0.02, 0.12, sdTail(pb));
+                    alb = mix(alb, uBelly, belly * uBellyAmt);
+                }
+                if (uMouthLine.z > 0.0) {
+                    float ax = abs(ph.x - uHead.x);
+                    float my = uMouthLine.x + uMouthLine.y * ax * ax;
+                    float line = (1.0 - smoothstep(0.008, 0.02, abs(ph.y - my)))
+                               * smoothstep(0.08, 0.14, ax) * (1.0 - smoothstep(0.42, 0.5, ax))
+                               * step(0.0, ph.z) * m.z;
+                    alb = mix(alb, uDark * 0.5, line * uMouthLine.z);
+                }
                 vec3 nh = uHeadInv * n;
                 vec2 fuv = vec2(0.5 + (ph.x - uHead.x) / uFaceSize, 0.5 - (ph.y - uFaceY) / uFaceSize);
                 if (all(greaterThan(fuv, vec2(0.0))) && all(lessThan(fuv, vec2(1.0)))) {

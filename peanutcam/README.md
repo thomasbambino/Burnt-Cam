@@ -14,8 +14,10 @@ webcam ──► MediaPipe face tracking ──► 3D peanut (rendered on your G
 * Your face is "unwrapped" into a front-facing texture before it's painted on, so it stays
   glued to the peanut even when you turn your head.
 * Opening your mouth makes the head stretch a little (squash and stretch).
-* It comes with four skins: **Burnt Peanut**, **Golden Peanut**, **Egg** and **Potato**.
-  You can add more in `skins.py`.
+* It comes with five skins: **Burnt Peanut**, **Golden Peanut**, **Egg**, **Potato** and
+  **Lizard**. The lizard is a sea-green cartoon inspired by Tom Lizard from Pixar's
+  *Hoppers*. Your eyes sit on its bulging eye domes, and it has a curled tail, a spiky crest
+  and three-toed hands and feet. You can add more skins in `skins.py`.
 * There are three backgrounds: studio gradient, green screen (for OBS chroma key), or your
   real room.
 
@@ -41,7 +43,7 @@ webcam ──► MediaPipe face tracking ──► 3D peanut (rendered on your G
 
 | Key       | Action                                                           |
 |-----------|------------------------------------------------------------------|
-| 1–4 / N   | Switch skin                                                      |
+| 1–5 / N   | Switch skin                                                      |
 | M         | Face mask: `features` (eyes, brows, mouth) or `full` (whole face) |
 | B         | Background: studio / green / webcam                              |
 | C         | Calibrate: look straight ahead and press it                      |
@@ -60,7 +62,7 @@ Pass options to `run.bat`, for example `run.bat --skin egg --bg green --zoom 1.6
 | Option              | Default    | What it does                                                          |
 |---------------------|------------|-----------------------------------------------------------------------|
 | `--camera N`        | 0          | Which webcam to use. Try 1 or 2 if the wrong one opens.               |
-| `--skin`            | 0          | Skin index or name (`burntpeanut`, `goldenpeanut`, `egg`, `potato`)   |
+| `--skin`            | 0          | Skin index or name (`burntpeanut`, `goldenpeanut`, `egg`, `potato`, `lizard`) |
 | `--mask`            | features   | `features` or `full`                                                  |
 | `--bg`              | studio     | `studio`, `green` or `webcam`                                         |
 | `--zoom`            | 1.25       | 1 = full body with room around it, 2 = head and shoulders             |
@@ -83,6 +85,9 @@ entries and change:
 * `base`, `dark`, `line`, `burn`, `net`: the colors and how burnt the shell looks.
 * `face_size`, `face_y`: how big your face is and where it sits on the head.
 * `face_tint`, `tint_amount`: tint your skin toward the character's color so it blends in.
+* Optional extras, as used by the Lizard skin: `eye_domes` (bulging eyes placed under your
+  eyes), `tail` (a tail and a spiky back crest), `toes`, `belly` / `belly_amount`,
+  `net_scale` (scale size) and `mouth_line` (a drawn-on grin).
 
 ## Troubleshooting
 

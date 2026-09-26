@@ -7,6 +7,11 @@ the head lobe.  Add a new dict to SKINS to create a new character.
 
 Shape units: the character stands roughly 2.8 units tall, feet at y = -1.6.
 Colors are 0..1 RGB.
+
+Optional keys (default off): "eye_domes" (radius of bulging eyes placed where
+your eyes land on the face), "tail" (tail + back crest), "toes", "net_scale" (size of the scale/netting
+cells), "belly" + "belly_amount", "mouth_line" (strength of a drawn-on grin),
+"limb_radius".
 """
 
 SKINS = [
@@ -96,6 +101,38 @@ SKINS = [
         "face_size": 1.40,
         "face_y": 0.40,
         "face_tint": (0.95, 0.82, 0.66),
+        "tint_amount": 0.30,
+    },
+    {
+        # An original cartoon lizard in the spirit of Tom Lizard from Pixar's
+        # "Hoppers": sea-green scales and big eyes that drift apart.
+        "name": "Lizard",
+        "head": (0.0, 0.42, 0.12, 0.60),
+        "head_scale": (1.20, 0.70, 1.25),      # wide, flat head with a long snout
+        "body": (0.0, -0.62, 0.0, 0.50),
+        "body_scale": (0.95, 1.30, 0.85),      # slim, upright body
+        "blend": 0.30,
+        "bumps": 0.004,
+        "base": (0.33, 0.66, 0.52),            # sea green
+        "dark": (0.12, 0.36, 0.30),            # darker blotches
+        "line": (0.20, 0.45, 0.36),            # scale edges
+        "burn": 0.45,
+        "net": 0.45,
+        "net_scale": 2.4,
+        "gloss": 0.45,
+        "limbs": True,
+        "limb_radius": 0.075,
+        "limb_color": (0.28, 0.58, 0.45),
+        "glove_color": (0.30, 0.62, 0.48),     # hands
+        "belly": (0.86, 0.88, 0.62),
+        "belly_amount": 0.8,
+        "tail": True,                          # also adds a spiky crest
+        "toes": True,
+        "eye_domes": 0.19,
+        "mouth_line": 0.45,
+        "face_size": 1.60,
+        "face_y": 0.57,
+        "face_tint": (0.80, 0.95, 0.82),
         "tint_amount": 0.30,
     },
 ]
