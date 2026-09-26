@@ -5,5 +5,5 @@ if not exist .venv\Scripts\python.exe (
     pause
     exit /b 1
 )
-.venv\Scripts\python peanutcam.py %*
+.venv\Scripts\python burntcam.py %*
 if errorlevel 1 pause

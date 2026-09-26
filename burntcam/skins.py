@@ -10,8 +10,9 @@ Colors are 0..1 RGB.
 
 Optional keys: "net_scale" (size of the scale/netting cells), "belly" +
 "belly_amount", "limb_radius", "body_follow" (how much the body turns with
-your head), "zoom" / "camera_y" (framing), "mouth_only" (features mask shows
-only your mouth), "default_mask" (features / full / off).
+your head), "top" (highest point, for camera framing; defaults to the top of
+the head), "mouth_only" (features mask shows only your mouth), "default_mask"
+(features / full / off).
 "shape": "lizard" switches to the cartoon lizard model, which has its own
 body (see mapLizard in renderer.py) and uses "body_yaw".
 """
@@ -140,6 +141,6 @@ SKINS = [
         "face_y": 0.42,
         "face_tint": (0.85, 0.95, 0.80),
         "tint_amount": 0.25,
-        "camera_y": -0.20,
+        "top": 0.86,                           # top of the eyes (for camera framing)
     },
 ]

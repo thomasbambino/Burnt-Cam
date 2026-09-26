@@ -1,15 +1,17 @@
-"""PeanutCam - put your real face on a 3D character and use it as a webcam.
+"""Burnt Cam - put your real face on a 3D character and use it as a webcam.
 
     webcam -> MediaPipe face tracking -> 3D character (GPU) -> virtual camera
 
 Pick "OBS Virtual Camera" as your camera in Zoom / Discord / Teams / OBS.
-Run ``python peanutcam.py --help`` for options.
+Run ``python burntcam.py --help`` for options.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import shutil
 import sys
 import threading
 import time
@@ -22,8 +24,14 @@ from skins import SKINS
 from tracker import FaceTracker
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BACKGROUNDS = ["studio", "green", "webcam"]
+BUILTIN_BACKGROUNDS = ["studio", "green", "webcam"]
+BACKGROUND_DIR = os.path.join(HERE, "backgrounds")
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".gif"}
 MASKS = ["features", "full", "off"]
+VIEWS = {"full": "Full body", "waist": "Waist up", "chest": "Chest up", "face": "Close-up"}
+SETTINGS_FILE = os.path.join(HERE, "settings.json")
+GROUND = -1.66
 
 # Image space (x right, y down, z away) -> render space (x right, y up, z toward viewer).
 FLIP = np.diag([1.0, -1.0, -1.0])
@@ -33,10 +41,10 @@ PIVOT = np.array([0.0, -1.66, 0.0])  # the feet; the body leans around them
 
 
 # ---------------------------------------------------------------- video input
-# Virtual cameras (including the one PeanutCam itself sends to) are skipped
+# Virtual cameras (including the one Burnt Cam itself sends to) are skipped
 # when picking a webcam automatically.
 VIRTUAL_CAMERA_WORDS = ("obs", "virtual", "unity video capture", "snap camera", "xsplit",
-                        "manycam", "peanutcam")
+                        "manycam", "burnt cam")
 
 
 def list_cameras() -> list[tuple[int, int, str]]:
@@ -162,19 +170,19 @@ def open_camera(cams, start: int, args):
     for k in range(len(cams)):
         i = (start + k) % len(cams)
         cam = cams[i]
-        print(f"[peanutcam] Trying webcam: {cam[2]} ...")
+        print(f"[burntcam] Trying webcam: {cam[2]} ...")
         try:
             src = CameraSource(cam, args.cam_width, args.cam_height, args.fps)
         except RuntimeError as e:
-            print(f"[peanutcam]   {e}")
+            print(f"[burntcam]   {e}")
             continue
-        print(f"[peanutcam] Using webcam: {cam[2]}  (press K in the preview to switch)")
+        print(f"[burntcam] Using webcam: {cam[2]}  (press K in the preview to switch)")
         return src, i
     raise SystemExit(
-        "[peanutcam] Could not get a picture from any webcam.\n"
+        "[burntcam] Could not get a picture from any webcam.\n"
         "  - Close other apps that may be using it (Zoom, Teams, Discord, the Camera app, OBS).\n"
         "  - Check Windows Settings > Privacy & security > Camera: allow desktop apps.\n"
-        "  - Run with --list-cameras to see what PeanutCam can find."
+        "  - Run with --list-cameras to see what Burnt Cam can find."
     )
 
 
@@ -234,6 +242,7 @@ class Pose:
         self.offset = np.zeros(3)
         self.stretch = 0.0
         self.jaw = 0.0
+        self.tongue = 0.0
         self.blink = np.zeros(2)
         self.last_raw = None
 
@@ -256,17 +265,20 @@ class Pose:
             target_s = 0.08 * np.clip(face.jaw_open * 1.4 - 0.1, 0.0, 1.0)
             target_b = np.array(face.blink)
             target_j = float(np.clip(face.jaw_open * 1.6 - 0.08, 0.0, 1.0))
+            target_t = face.tongue
         else:
             target_r = self.rvec * 0.9
             target_o = self.offset * 0.9
             target_s = 0.0
             target_b = np.zeros(2)
             target_j = 0.0
+            target_t = 0.0
         self.rvec += (target_r - self.rvec) * a
         self.offset += (target_o - self.offset) * a
         self.stretch += (target_s - self.stretch) * min(1.0, a * 1.5)
         self.blink += (target_b - self.blink) * min(1.0, a * 2.5)  # blinks are fast
         self.jaw += (target_j - self.jaw) * min(1.0, a * 1.5)
+        self.tongue += (target_t - self.tongue) * min(1.0, a * 0.8)  # a bit slower = no flicker
 
     def uniforms(self, t: float, body_follow: float = 0.3) -> dict:
         Rh = cv2.Rodrigues(self.rvec)[0]
@@ -282,6 +294,7 @@ class Pose:
             "uOffset": tuple(self.offset + np.array([0.0, bob, 0.0])),
             "uStretch": float(self.stretch),
             "uJaw": float(self.jaw),
+            "uTongue": float(self.tongue),
             "uBlink": tuple(float(b) for b in self.blink),
         }
 
@@ -298,7 +311,6 @@ def skin_uniforms(skin: dict) -> dict:
         "uLimbR": skin.get("limb_radius", 0.045),
         "uShape": 1 if skin.get("shape") == "lizard" else 0,
         "uBodyYaw": float(np.radians(skin.get("body_yaw", 0.0))),
-        "uCamY": skin.get("camera_y", 0.0),
         "uNetScale": skin.get("net_scale", 1.0),
         "uBelly": skin.get("belly", (1.0, 1.0, 1.0)),
         "uBellyAmt": skin.get("belly_amount", 0.0),
@@ -322,7 +334,7 @@ def open_virtual_camera(args):
     try:
         import pyvirtualcam
     except ImportError:
-        print("[peanutcam] pyvirtualcam not installed - preview only.")
+        print("[burntcam] pyvirtualcam not installed - preview only.")
         return None
     try:
         cam = pyvirtualcam.Camera(
@@ -331,46 +343,188 @@ def open_virtual_camera(args):
         )
     except Exception as e:  # noqa: BLE001
         print(
-            "[peanutcam] Could not start the virtual camera:\n"
+            "[burntcam] Could not start the virtual camera:\n"
             f"    {e}\n"
-            "  -> Install OBS Studio (https://obsproject.com). PeanutCam sends video to\n"
+            "  -> Install OBS Studio (https://obsproject.com). Burnt Cam sends video to\n"
             "     the 'OBS Virtual Camera' device. Make sure OBS itself is NOT running\n"
             "     its own virtual camera at the same time.\n"
             "  Continuing in preview-only mode."
         )
         return None
-    print(f"[peanutcam] Virtual camera running: {cam.device}  "
+    print(f"[burntcam] Virtual camera running: {cam.device}  "
           f"-> select it as your camera in Zoom/Discord/Teams.")
     return cam
 
 
+# ---------------------------------------------------------------------- views
+def framing(skin: dict, view: str, zoom: float) -> tuple[float, float, float]:
+    """Camera height, lens zoom and visible half-height for a view preset.
+
+    Each preset shows the character from some point up to just above the top
+    of its head, so the presets work for every skin whatever its size.
+    """
+    _, head_y, _, head_r = skin["head"]
+    head_r *= skin["head_scale"][1]
+    top = skin.get("top", head_y + head_r)
+    bottom, margin = {
+        "full": (GROUND - 0.18, 0.22),
+        "waist": (head_y - (head_y - GROUND) * 0.55, 0.20),
+        "chest": (head_y - (head_y - GROUND) * 0.35, 0.18),
+        "face": (head_y - head_r * 1.25, 0.15),
+    }[view]
+    top += margin
+    half = (top - bottom) / 2.0 / zoom
+    center = (top + bottom) / 2.0
+    return center, 5.2 / (2.75 * half), half
+
+
+# ---------------------------------------------------------------- backgrounds
+def list_backgrounds() -> list[str]:
+    """Built-in backgrounds followed by every image/video in backgrounds/."""
+    files = []
+    if os.path.isdir(BACKGROUND_DIR):
+        for name in sorted(os.listdir(BACKGROUND_DIR), key=str.lower):
+            if os.path.splitext(name)[1].lower() in IMAGE_EXTS | VIDEO_EXTS:
+                files.append(os.path.join(BACKGROUND_DIR, name))
+    return BUILTIN_BACKGROUNDS + files
+
+
+def background_label(bg: str) -> str:
+    return bg if bg in BUILTIN_BACKGROUNDS else os.path.basename(bg)
+
+
+class BackgroundMedia:
+    """A custom background image or looping video, sized for the output."""
+
+    def __init__(self, path: str, size: tuple[int, int]):
+        self.path = path
+        self.size = size
+        self.image = None
+        self.cap = None
+        self.sent = False
+        if os.path.splitext(path)[1].lower() in IMAGE_EXTS:
+            data = np.fromfile(path, np.uint8)  # handles non-ASCII paths on Windows
+            self.image = cv2.imdecode(data, cv2.IMREAD_COLOR) if data.size else None
+            if self.image is None:
+                raise RuntimeError(f"Could not read image {path}")
+            self.image = self._fit(self.image)
+        else:
+            self.cap = cv2.VideoCapture(path)
+            if not self.cap.isOpened():
+                raise RuntimeError(f"Could not open video {path}")
+            self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 30.0
+            self.pos = -1
+            self.last = None
+
+    def _fit(self, img):
+        # No point uploading more pixels than we output.
+        w, h = self.size
+        s = min(1.0, max(w / img.shape[1], h / img.shape[0]))
+        return cv2.resize(img, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1.0 else img
+
+    def frame(self, t: float):
+        """The picture to show at time t, or None if it hasn't changed."""
+        if self.image is not None:
+            if self.sent:
+                return None
+            self.sent = True
+            return self.image
+        want = int(t * self.fps)
+        if want == self.pos and self.last is not None:
+            return None
+        ok, img = self.cap.read()
+        if not ok:  # loop
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ok, img = self.cap.read()
+            if not ok:
+                return None
+        self.pos = want
+        self.last = self._fit(img)
+        return self.last
+
+    def close(self):
+        if self.cap is not None:
+            self.cap.release()
+
+
+def ask_for_background() -> str | None:
+    """Open a file picker and copy the chosen image/video into backgrounds/."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError:
+        print(f"[burntcam] No file picker available - copy images or videos into {BACKGROUND_DIR}")
+        return None
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    exts = " ".join(f"*{e}" for e in sorted(IMAGE_EXTS | VIDEO_EXTS))
+    path = filedialog.askopenfilename(
+        parent=root, title="Choose a background image or video",
+        filetypes=[("Images and videos", exts), ("All files", "*.*")])
+    root.destroy()
+    if not path:
+        return None
+    if os.path.splitext(path)[1].lower() not in IMAGE_EXTS | VIDEO_EXTS:
+        print(f"[burntcam] {os.path.basename(path)} isn't a supported image or video.")
+        return None
+    os.makedirs(BACKGROUND_DIR, exist_ok=True)
+    name = os.path.basename(path)
+    dest = os.path.join(BACKGROUND_DIR, name)
+    stem, ext = os.path.splitext(name)
+    n = 2
+    while os.path.exists(dest) and not os.path.samefile(dest, path):
+        dest = os.path.join(BACKGROUND_DIR, f"{stem} ({n}){ext}")
+        n += 1
+    if not os.path.exists(dest):
+        shutil.copy2(path, dest)
+    print(f"[burntcam] Added background: {os.path.basename(dest)}")
+    return dest
+
+
+# ------------------------------------------------------------------ settings
+def load_settings() -> dict:
+    try:
+        with open(SETTINGS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(state: dict):
+    keep = {k: state[k] for k in ("skin_name", "mask", "bg", "view", "zoom")}
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(keep, f, indent=2)
+    except OSError:
+        pass
+
+
 # ----------------------------------------------------------------------- HUD
 HELP = [
-    "1-9 / N : skin",
+    "1-9 / N : character",
+    "V : camera view (full body / waist up / chest up / close-up)",
+    "+ / - : zoom in / out",
+    "B : background    U : upload a background",
     "M : your face on it: features / full / off",
-    "B : background",
-    "C : calibrate (look straight, press C)",
-    "R : reset calibration",
-    "P : webcam picture-in-picture",
-    "K : switch to the next webcam",
-    "H : hide this help",
-    "Q / Esc : quit",
+    "C : calibrate (look straight, press C)    R : reset",
+    "K : switch webcam    P : webcam preview",
+    "H : hide this help    Q / Esc : quit",
 ]
 
 
 def draw_hud(img, state, skin_name, fps, warning=None):
-    lines = [f"{skin_name} | mask: {state['mask']} | bg: {state['bg']} | {fps:4.1f} fps",
+    lines = [f"{skin_name} | {VIEWS[state['view']]} | bg: {background_label(state['bg'])} | "
+             f"face: {state['mask']} | {fps:4.1f} fps",
              f"webcam: {state['camera']}"]
     if state["help"]:
         lines += HELP
     y = 26
     for line in lines:
-        cv2.putText(img, line, (12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 3, cv2.LINE_AA)
         cv2.putText(img, line, (12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
         y += 22
     if warning:
         h = img.shape[0]
-        cv2.putText(img, warning, (12, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4, cv2.LINE_AA)
         cv2.putText(img, warning, (12, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (80, 200, 255), 2, cv2.LINE_AA)
 
 
@@ -396,16 +550,21 @@ def parse_args(argv=None):
     ap.add_argument("--width", type=int, default=1280, help="output width")
     ap.add_argument("--height", type=int, default=720, help="output height")
     ap.add_argument("--fps", type=int, default=30)
-    ap.add_argument("--skin", default="0", help="skin index or name (see skins.py)")
+    ap.add_argument("--skin", default=None, help="skin number or name (see skins.py)")
     ap.add_argument("--mask", choices=MASKS, default=None,
                     help="features = your eyes, brows and mouth; full = whole face; "
                          "off = puppet mode, your face only animates the character "
                          "(default: whatever suits the skin)")
-    ap.add_argument("--bg", choices=BACKGROUNDS, default="studio")
-    ap.add_argument("--zoom", type=float, default=1.25,
-                    help="camera zoom: 1 = full body with room, 2 = head and shoulders")
+    ap.add_argument("--bg", default=None,
+                    help="studio, green, webcam, or the path to an image/video file")
+    ap.add_argument("--view", choices=list(VIEWS), default=None,
+                    help="camera framing: full, waist, chest or face")
+    ap.add_argument("--zoom", type=float, default=None,
+                    help="extra zoom on top of the view (1 = none, 1.2 = 20%% closer)")
     ap.add_argument("--follow", type=float, default=0.6,
                     help="how much the character follows your head around the frame (0-1)")
+    ap.add_argument("--tongue-sensitivity", type=float, default=1.0,
+                    help="how easily sticking your tongue out is detected (higher = easier)")
     ap.add_argument("--smoothing", type=float, default=0.5, help="landmark smoothing 0-0.95")
     ap.add_argument("--pitch-offset", type=float, default=0.0,
                     help="degrees; tilt the neutral head pose (or press C to calibrate)")
@@ -422,7 +581,7 @@ def parse_args(argv=None):
 
 def pick_skin(value: str) -> int:
     if value.isdigit():
-        return int(value) % len(SKINS)
+        return (int(value) - 1) % len(SKINS)
     for i, s in enumerate(SKINS):
         if s["name"].lower().replace(" ", "") == value.lower().replace(" ", ""):
             return i
@@ -431,36 +590,74 @@ def pick_skin(value: str) -> int:
 
 def main(argv=None):
     args = parse_args(argv)
+    if args.list_cameras:
+        for index, _, name in list_cameras():
+            print(f"  {index}: {name}{'  (virtual - skipped by auto)' if is_virtual(name) else ''}")
+        return
+
+    # Command-line options win, then what you used last time, then defaults.
+    saved = load_settings()
+    skin_i = pick_skin(args.skin) if args.skin else 0
+    if not args.skin and saved.get("skin_name"):
+        skin_i = next((i for i, s in enumerate(SKINS) if s["name"] == saved["skin_name"]), 0)
+    bg = args.bg or saved.get("bg", "studio")
+    if bg not in BUILTIN_BACKGROUNDS and not os.path.isfile(bg):
+        if args.bg:
+            raise SystemExit(f"[burntcam] Background {bg!r} not found.")
+        bg = "studio"
+    mask = args.mask or (saved.get("mask") if not args.skin and saved.get("skin_name") == SKINS[skin_i]["name"]
+                         else None) or SKINS[skin_i].get("default_mask", "features")
     state = {
-        "skin": pick_skin(args.skin),
-        "mask": args.mask or SKINS[pick_skin(args.skin)].get("default_mask", "features"),
-        "bg": args.bg,
+        "skin": skin_i,
+        "skin_name": SKINS[skin_i]["name"],
+        "mask": mask if mask in MASKS else "features",
+        "bg": bg,
+        "view": args.view or (saved.get("view") if saved.get("view") in VIEWS else "full"),
+        "zoom": float(args.zoom or saved.get("zoom", 1.0)),
         "help": True,
         "pip": True,
         "camera": args.input or "",
     }
 
-    if args.list_cameras:
-        for index, _, name in list_cameras():
-            print(f"  {index}: {name}{'  (virtual - skipped by auto)' if is_virtual(name) else ''}")
-        return
     cams, cam_i = [], 0
     if args.input:
         source = FileSource(args.input)
     else:
         cams = pick_cameras(str(args.camera))
         if not cams:
-            raise SystemExit("[peanutcam] No webcams found. Is one plugged in and allowed in "
+            raise SystemExit("[burntcam] No webcams found. Is one plugged in and allowed in "
                              "Windows Settings > Privacy & security > Camera?")
         source, cam_i = open_camera(cams, 0, args)
         state["camera"] = cams[cam_i][2]
     tracker = FaceTracker(args.model, smoothing=args.smoothing)
+    tracker.tongue_sensitivity = max(0.1, args.tongue_sensitivity)
     renderer = Renderer(args.width, args.height, supersample=args.supersample)
     pose = Pose(args.follow, args.pitch_offset)
     vcam = None if args.no_vcam else open_virtual_camera(args)
     preview = not args.no_preview
-    window = "PeanutCam (preview)"
+    window = "Burnt Cam (preview)"
 
+    bg_media = None
+
+    def set_background(new_bg):
+        nonlocal bg_media
+        if bg_media is not None:
+            bg_media.close()
+            bg_media = None
+        if new_bg not in BUILTIN_BACKGROUNDS:
+            try:
+                bg_media = BackgroundMedia(new_bg, (args.width, args.height))
+            except RuntimeError as e:
+                print(f"[burntcam] {e}")
+                new_bg = "studio"
+        state["bg"] = new_bg
+
+    def set_skin(i):
+        state["skin"] = i
+        state["skin_name"] = SKINS[i]["name"]
+        state["mask"] = SKINS[i].get("default_mask", "features")
+
+    set_background(state["bg"])
     seq, frames = 0, 0
     t0 = last = time.perf_counter()
     last_seen = -1e9
@@ -477,12 +674,12 @@ def main(argv=None):
             last = now
             t = (now - t0) if not args.input else frames / args.fps
             fps = 0.9 * fps + 0.1 / max(dt, 1e-3)
+            skin = SKINS[state["skin"]]
 
             face = tracker.process(frame, int(t * 1000))
             renderer.upload_camera(frame)
             if face is not None:
                 last_seen = t
-                skin = SKINS[state["skin"]]
                 if state["mask"] == "full":
                     mask = face.mask_full
                 elif skin.get("mouth_only"):
@@ -498,14 +695,25 @@ def main(argv=None):
                 face_alpha += (target - face_alpha) * min(1.0, dt * 10.0)
             pose.update(face, dt)
 
-            skin = SKINS[state["skin"]]
+            if bg_media is not None:
+                bg_frame = bg_media.frame(t)
+                if bg_frame is not None:
+                    renderer.upload_background(bg_frame)
+
+            cam_y, zoom, half = framing(skin, state["view"], state["zoom"])
             u = skin_uniforms(skin)
             u.update(pose.uniforms(t, skin.get("body_follow", 0.3)))
+            # Moving around your frame moves the character by the same share of
+            # the picture, however close the view is.
+            s = min(1.0, half / 1.6)
+            u["uOffset"] = tuple(np.array(u["uOffset"]) * np.array([s, s * s, s]))
+            bg_index = BUILTIN_BACKGROUNDS.index(state["bg"]) if state["bg"] in BUILTIN_BACKGROUNDS else 3
             u.update({
                 "uTime": t,
-                "uZoom": args.zoom * skin.get("zoom", 1.0),
+                "uZoom": zoom,
+                "uCamY": cam_y,
                 "uFaceAlpha": 0.0 if state["mask"] == "off" else face_alpha,
-                "uBg": BACKGROUNDS.index(state["bg"]),
+                "uBg": bg_index,
                 "uBgTop": (0.36, 0.50, 0.72),
                 "uBgBot": (0.93, 0.83, 0.70),
             })
@@ -525,25 +733,35 @@ def main(argv=None):
                 if t - last_seen > 1.5:
                     warning = ("No face found - face the camera in good light"
                                + (", or press K to try another webcam" if len(cams) > 1 else ""))
-                draw_hud(view, state, SKINS[state["skin"]]["name"], fps, warning)
+                draw_hud(view, state, skin["name"], fps, warning)
                 cv2.imshow(window, view)
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord("q"), 27):
                     break
                 if cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) < 1:
                     break
-                new_skin = None
                 if ord("1") <= key <= ord("9") and key - ord("1") < len(SKINS):
-                    new_skin = key - ord("1")
+                    set_skin(key - ord("1"))
                 elif key == ord("n"):
-                    new_skin = (state["skin"] + 1) % len(SKINS)
-                if new_skin is not None:
-                    state["skin"] = new_skin
-                    state["mask"] = SKINS[new_skin].get("default_mask", "features")
+                    set_skin((state["skin"] + 1) % len(SKINS))
+                elif key == ord("v"):
+                    names = list(VIEWS)
+                    state["view"] = names[(names.index(state["view"]) + 1) % len(names)]
+                    state["zoom"] = 1.0
+                elif key in (ord("+"), ord("=")):
+                    state["zoom"] = min(3.0, state["zoom"] * 1.1)
+                elif key in (ord("-"), ord("_")):
+                    state["zoom"] = max(0.5, state["zoom"] / 1.1)
                 elif key == ord("m"):
                     state["mask"] = MASKS[(MASKS.index(state["mask"]) + 1) % len(MASKS)]
                 elif key == ord("b"):
-                    state["bg"] = BACKGROUNDS[(BACKGROUNDS.index(state["bg"]) + 1) % len(BACKGROUNDS)]
+                    options = list_backgrounds()
+                    i = options.index(state["bg"]) if state["bg"] in options else -1
+                    set_background(options[(i + 1) % len(options)])
+                elif key == ord("u"):
+                    added = ask_for_background()
+                    if added:
+                        set_background(added)
                 elif key == ord("c"):
                     pose.calibrate()
                 elif key == ord("r"):
@@ -562,7 +780,11 @@ def main(argv=None):
     finally:
         if args.save and out is not None:
             cv2.imwrite(args.save, out)
-            print(f"[peanutcam] saved {args.save}")
+            print(f"[burntcam] saved {args.save}")
+        if not args.input:
+            save_settings(state)
+        if bg_media is not None:
+            bg_media.close()
         source.close()
         tracker.close()
         if vcam is not None:

@@ -11,6 +11,7 @@ The tracker turns every webcam frame into a ``FaceState``:
 * ``center``   - face center in normalized image coordinates.
 * ``jaw_open`` - 0..1 blendshape, used for a little squash & stretch.
 * ``blink``    - (screen-left eye, screen-right eye) closure, 0 open .. 1 shut.
+* ``tongue``   - 0..1, how sure we are your tongue is sticking out.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ MASK_TEX_SIZE = 256
 
 def ensure_model(path: str) -> str:
     if not os.path.exists(path):
-        print(f"[peanutcam] Downloading face model to {path} ...", file=sys.stderr)
+        print(f"[burntcam] Downloading face model to {path} ...", file=sys.stderr)
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         tmp = path + ".part"
         urllib.request.urlretrieve(MODEL_URL, tmp)
@@ -143,6 +144,7 @@ class FaceState:
     size: float              # eye-corner distance / frame width
     jaw_open: float
     blink: tuple             # (screen-left eye, screen-right eye), 0 open .. 1 shut
+    tongue: float            # 0..1 tongue sticking out
     mask_full: np.ndarray    # (MASK, MASK) uint8 face-oval mask in tex space
     mask_features: np.ndarray  # eyes + brows + mouth mask in tex space
     mask_mouth: np.ndarray     # mouth only
@@ -175,6 +177,9 @@ class FaceTracker:
         self.smoothing = float(np.clip(smoothing, 0.0, 0.95))
         self._p3: np.ndarray | None = None
         self._last_ts = -1
+        self._tongue_base: float | None = None   # learned "no tongue" pinkness
+        self._tongue_frames = 0
+        self.tongue_sensitivity = 1.0
 
     def close(self):
         self.landmarker.close()
@@ -189,6 +194,7 @@ class FaceTracker:
         if not result.face_landmarks:
             self._p3 = None
             return None
+        raw = result.face_landmarks[0]
 
         lms = result.face_landmarks[0][:N_MESH]
         p3 = np.array([(l.x * w, l.y * h, l.z * w) for l in lms], dtype=np.float64)
@@ -197,15 +203,55 @@ class FaceTracker:
             p3 = self.smoothing * self._p3 + (1.0 - self.smoothing) * p3
         self._p3 = p3
 
-        jaw = 0.0
+        jaw = tongue_bs = 0.0
         if result.face_blendshapes:
             for cat in result.face_blendshapes[0]:
                 if cat.category_name == "jawOpen":
                     jaw = float(cat.score)
-                    break
-        return self._build_state(p3, w, h, jaw)
+                elif cat.category_name == "tongueOut":  # present in some model versions
+                    tongue_bs = float(cat.score)
+        pts = np.array([(l.x * w, l.y * h) for l in raw[:N_MESH]])
+        tongue = max(self._tongue(frame_bgr, pts), tongue_bs)
+        return self._build_state(p3, w, h, jaw, tongue)
 
-    def _build_state(self, p3, w, h, jaw) -> FaceState:
+    def _tongue(self, frame, pts) -> float:
+        """Detect a stuck-out tongue from the colour just below the lower lip.
+
+        MediaPipe doesn't track tongues, but a tongue is much pinker than the
+        skin it covers. We compare the area under the lower lip with the
+        cheeks (so lighting and skin tone cancel out), learn what that looks
+        like normally, and report how far above normal it is.
+        """
+        mouth_w = np.linalg.norm(pts[291] - pts[61])
+        r = max(2, int(mouth_w * 0.10))
+        h, w = frame.shape[:2]
+
+        def pinkness(pt):
+            x, y = int(pt[0]), int(pt[1])
+            crop = frame[max(0, y - r):min(h, y + r + 1), max(0, x - r):min(w, x + r + 1)]
+            if crop.size == 0:
+                return None
+            lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB).reshape(-1, 3).astype(np.float32)
+            # Tongues are red-pink (high a*) and less yellow (lower b*) than skin.
+            return float(np.mean(lab[:, 1] - 0.5 * lab[:, 2]))
+
+        cheeks = [pinkness(pts[i]) for i in (50, 280)]
+        below = [pinkness(pts[14] + f * (pts[152] - pts[14])) for f in (0.3, 0.42, 0.54)]
+        if any(v is None for v in cheeks + below):
+            return 0.0
+        dev = max(below) - float(np.mean(cheeks))
+        if self._tongue_base is None:
+            self._tongue_base = dev
+        k = self.tongue_sensitivity
+        score = float(np.clip((dev - self._tongue_base - 5.0 / k) / (8.0 / k), 0.0, 1.0))
+        # Keep learning "normal" (quickly at first), but never learn a tongue.
+        if score < 0.2:
+            rate = 0.2 if self._tongue_frames < 30 else 0.02
+            self._tongue_base += (dev - self._tongue_base) * rate
+            self._tongue_frames += 1
+        return score
+
+    def _build_state(self, p3, w, h, jaw, tongue=0.0) -> FaceState:
         R = head_frame(p3)
         eye_dist = np.linalg.norm(p3[R_EYE_OUTER] - p3[L_EYE_OUTER])
         center = 0.5 * (p3[FOREHEAD] + p3[CHIN])
@@ -230,6 +276,7 @@ class FaceTracker:
             center=(center[:2] / np.array([w, h])).astype(np.float32),
             size=float(eye_dist / w),
             jaw_open=jaw,
+            tongue=tongue,
             blink=self._blink(tex),
             mask_full=self._mask(tex, [topo.oval], [], erode=0.035),
             mask_features=self._mask(

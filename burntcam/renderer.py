@@ -70,7 +70,7 @@ out vec4 fragColor;
 uniform vec2  uRes;
 uniform float uTime;
 uniform float uZoom;
-uniform float uCamY;
+uniform float uCamY;        // camera height (set by the view preset)
 uniform vec3  uOffset;
 uniform mat3  uHeadInv;
 uniform vec3  uNeck;
@@ -90,6 +90,7 @@ uniform float uLimbR;
 uniform int   uShape;       // 0 = two-lobe character (peanut, egg...), 1 = lizard
 uniform vec2  uBlink;       // lizard: eyelid closure, x = screen-left eye, y = screen-right eye
 uniform float uJaw;         // lizard: mouth opening 0..1
+uniform float uTongue;      // lizard: tongue sticking out 0..1
 uniform float uBodyYaw;     // lizard: body turned this far (radians)
 uniform float uNetScale;
 uniform vec3  uBelly;
@@ -115,8 +116,10 @@ uniform float uTintAmt;
 
 const float GROUND = -1.66;
 
-uniform int   uBg;          // 0 studio gradient, 1 green screen, 2 webcam
+uniform int   uBg;          // 0 studio gradient, 1 green screen, 2 webcam, 3 custom image/video
 uniform float uCamAspect;
+uniform sampler2D uBgTex;
+uniform float uBgAspect;
 uniform vec3  uBgTop;
 uniform vec3  uBgBot;
 
@@ -229,13 +232,29 @@ float lizardLimbs(vec3 qm, float side) {
     }
     return d;
 }
-// Mouth cavity in head space: a smile-shaped slit that opens with uJaw.
+// A flat, tongue-shaped segment from a to b (flattened across its direction).
+float sdTongue(vec3 p, vec3 a, vec3 b, float r1, float r2) {
+    vec3 dir = b - a;
+    float len = length(dir);
+    if (len < 1e-4) return length(p - a) - r1;
+    vec3 f = normalize(cross(dir / len, vec3(1.0, 0.0, 0.0)));
+    vec3 q = p - a;
+    q += f * dot(q, f) * 1.4;                         // 2.4x thinner than wide
+    return sdRoundCone(q, vec3(0.0), dir, r1, r2) / 2.4;
+}
+
+// How far the mouth is open: your jaw, or enough to let the tongue out.
+float lizardJaw() { return max(uJaw, 0.45 * uTongue); }
+
+// Mouth cavity in head space: a smile-shaped slit that opens with the jaw.
 float lizardMouth(vec3 ph) {
+    float uJaw = lizardJaw();
     vec3 c = ph - vec3(0.0, 0.305 - 0.10 * uJaw, 0.36);
     c.y -= 0.55 * c.x * c.x;                               // corners curl up into a smile
     return sdEllipsoid(c, vec3(0.27 + 0.02 * uJaw, 0.010 + 0.21 * uJaw, 0.27));
 }
 vec3 mapLizard(vec3 p) {
+    float uJaw = lizardJaw();
     vec3 ph = toHead(p);
     vec3 pb = toBody(p);
     vec3 q = lizardLocal(pb);
@@ -271,9 +290,19 @@ vec3 mapLizard(vec3 p) {
     vec3 res = vec3(d, -cav > head - 0.004 ? 4.0 : 0.0, hw);
     if (lid < res.x) res = vec3(lid, 0.0, 1.0);
     if (eye < res.x) res = vec3(eye, 3.0, 1.0);
-    // Tongue: rests inside the mouth, visible once it opens.
+    // Tongue: rests inside the mouth, visible once it opens, and sticks out
+    // (with a little wiggle) when you stick yours out.
     float tongue = sdEllipsoid(ph - vec3(0.0, 0.26 - 0.17 * uJaw, 0.30 + 0.10 * uJaw), vec3(0.15, 0.075, 0.19));
-    tongue = smax(tongue, head - 0.005, 0.01);
+    if (uTongue > 0.02) {
+        float wig = 0.05 * sin(uTime * 7.0) * uTongue;
+        vec3 base = vec3(0.0, 0.25 - 0.12 * uJaw, 0.36);
+        vec3 mid = base + vec3(wig, -0.05 * uTongue, 0.30 * uTongue);    // out toward you...
+        vec3 tip = mid + vec3(wig * 1.5, -0.17 * uTongue, 0.07 * uTongue);  // ...then droops
+        tongue = smin(tongue, sdTongue(ph, base, mid, 0.135, 0.125), 0.05);
+        tongue = smin(tongue, sdTongue(ph, mid, tip, 0.125, 0.10), 0.05);
+    } else {
+        tongue = smax(tongue, head - 0.005, 0.01);      // keep it inside the closed mouth
+    }
     if (tongue < res.x) res = vec3(tongue, 5.0, 1.0);
     return res;
 }
@@ -380,7 +409,12 @@ vec3 lizardAlbedo(vec3 pos, vec3 n, vec3 m, out float gloss) {
     vec3 ph = toHead(pos);
     vec3 q = lizardLocal(toBody(pos));
     gloss = uGloss;
-    if (m.y > 4.5) { gloss = 0.6; return vec3(0.93, 0.45, 0.58); }          // tongue
+    if (m.y > 4.5) {                                                        // tongue
+        gloss = 0.6;
+        float wig = 0.05 * sin(uTime * 7.0) * uTongue;
+        float groove = 1.0 - smoothstep(0.006, 0.02, abs(ph.x - wig * 1.2)) * step(0.02, uTongue);
+        return mix(vec3(0.80, 0.32, 0.45), vec3(0.93, 0.45, 0.58), groove);
+    }
     if (m.y > 3.5) { gloss = 0.1; return vec3(0.36, 0.08, 0.15); }          // inside of mouth
     if (m.y > 2.5) {
         // Googly eye: ivory white with a small black pupil. The pupils point
@@ -421,30 +455,38 @@ vec3 lizardAlbedo(vec3 pos, vec3 n, vec3 m, out float gloss) {
 }
 
 // -------------------------------------------------------------------- main
+// Fill the frame with an image, cropping (not stretching) to fit.
+vec3 coverSample(sampler2D tex, float aspect) {
+    vec2 cuv = v_uv - 0.5;
+    float ra = (uRes.x / uRes.y) / aspect;
+    if (ra > 1.0) cuv.y /= ra; else cuv.x *= ra;
+    cuv += 0.5;
+    return texture(tex, vec2(cuv.x, 1.0 - cuv.y)).bgr;
+}
+
 void main() {
     vec2 frag = v_uv * uRes;
     vec2 p = (2.0 * frag - uRes) / uRes.y;
-    vec3 ro = vec3(0.0, mix(-0.2, 0.5, clamp(uZoom - 1.0, 0.0, 1.0)) + uCamY, 5.2);
+    vec3 ro = vec3(0.0, uCamY, 5.2);
     vec3 rd = normalize(vec3(p, -2.75 * uZoom));
 
     vec3 col;
     if (uBg == 1) {
         col = vec3(0.0, 1.0, 0.0);
     } else if (uBg == 2) {
-        vec2 cuv = v_uv - 0.5;
-        float ra = (uRes.x / uRes.y) / uCamAspect;
-        if (ra > 1.0) cuv.y /= ra; else cuv.x *= ra;
-        cuv += 0.5;
-        col = texture(uCam, vec2(cuv.x, 1.0 - cuv.y)).bgr * 0.85;
+        col = coverSample(uCam, uCamAspect) * 0.85;
+    } else if (uBg == 3) {
+        col = coverSample(uBgTex, uBgAspect);
     } else {
         col = mix(uBgBot, uBgTop, smoothstep(-0.2, 0.9, v_uv.y));
         col *= 1.0 - 0.18 * dot(p, p);
-        if (rd.y < 0.0) {
-            float tg = (GROUND + uOffset.y - ro.y) / rd.y;
-            vec2 d = (ro + rd * tg).xz - uOffset.xz;
-            float s = exp(-dot(d * vec2(1.4, 3.0), d * vec2(1.4, 3.0)));
-            col *= 1.0 - 0.5 * s;
-        }
+    }
+    // Soft contact shadow so the character stands on the floor.
+    if ((uBg == 0 || uBg == 3) && rd.y < 0.0) {
+        float tg = (GROUND + uOffset.y - ro.y) / rd.y;
+        vec2 d = (ro + rd * tg).xz - uOffset.xz;
+        float s = exp(-dot(d * vec2(1.4, 3.0), d * vec2(1.4, 3.0)));
+        col *= 1.0 - (uBg == 0 ? 0.5 : 0.35) * s;
     }
 
     // Bounding sphere around the character to skip empty pixels quickly.
@@ -557,6 +599,9 @@ class Renderer:
         self.scene_prog["uFace"].value = 0
         self.scene_prog["uMask"].value = 1
         self.scene_prog["uCam"].value = 2
+        self.scene_prog["uBgTex"].value = 4
+        self.bg_tex = None
+        self.bg_aspect = 16 / 9
         self.unwrap_prog["uCam"].value = 2
         self.resolve_prog["uSrc"].value = 3
 
@@ -571,6 +616,18 @@ class Renderer:
             self.cam_tex.repeat_x = self.cam_tex.repeat_y = False
             self.cam_aspect = w / h
         self.cam_tex.write(np.ascontiguousarray(frame_bgr).tobytes())
+
+    def upload_background(self, image_bgr: np.ndarray):
+        """Set the custom background (an image, or the current video frame)."""
+        h, w = image_bgr.shape[:2]
+        if self.bg_tex is None or self.bg_tex.size != (w, h):
+            if self.bg_tex is not None:
+                self.bg_tex.release()
+            self.bg_tex = self.ctx.texture((w, h), 3, alignment=1)
+            self.bg_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
+            self.bg_tex.repeat_x = self.bg_tex.repeat_y = False
+            self.bg_aspect = w / h
+        self.bg_tex.write(np.ascontiguousarray(image_bgr).tobytes())
 
     def update_face(self, face: FaceState, mask: np.ndarray, triangles: np.ndarray):
         verts = np.hstack([face.tex_uv, face.img_uv]).astype("f4")
@@ -594,6 +651,7 @@ class Renderer:
         uniforms = dict(uniforms)
         uniforms["uRes"] = self.ss_size
         uniforms["uCamAspect"] = self.cam_aspect
+        uniforms["uBgAspect"] = self.bg_aspect
         for name, value in uniforms.items():
             if name in prog:
                 prog[name].value = value
@@ -602,6 +660,8 @@ class Renderer:
         self.mask_tex.use(1)
         if self.cam_tex is not None:
             self.cam_tex.use(2)
+        if self.bg_tex is not None:
+            self.bg_tex.use(4)
         self.scene_fbo.use()
         self.scene_vao.render(moderngl.TRIANGLES, vertices=3)
 
