@@ -51,6 +51,7 @@ webcam ──► MediaPipe face tracking ──► 3D peanut (rendered on your G
 | C         | Calibrate: look straight ahead and press it                      |
 | R         | Reset calibration                                                |
 | P         | Show or hide the webcam picture-in-picture                       |
+| K         | Switch to the next webcam                                        |
 | H         | Show or hide the help text                                       |
 | Q / Esc   | Quit                                                             |
 
@@ -63,7 +64,8 @@ Pass options to `run.bat`, for example `run.bat --skin egg --bg green --zoom 1.6
 
 | Option              | Default    | What it does                                                          |
 |---------------------|------------|-----------------------------------------------------------------------|
-| `--camera N`        | 0          | Which webcam to use. Try 1 or 2 if the wrong one opens.               |
+| `--camera`          | auto       | Which webcam: `auto` (the first real one), a number, or part of its name, e.g. `--camera c920` |
+| `--list-cameras`    |            | Show the webcams PeanutCam can find, then exit                        |
 | `--skin`            | 0          | Skin index or name (`burntpeanut`, `goldenpeanut`, `egg`, `potato`, `lizard`) |
 | `--mask`            | per skin   | `features`, `full` or `off` (puppet mode)                             |
 | `--bg`              | studio     | `studio`, `green` or `webcam`                                         |
@@ -102,7 +104,13 @@ entries and change:
 * **The camera shows up black in Zoom.** Start PeanutCam first, then select the camera in
   Zoom. If it's still black, restart Zoom.
 * **Low FPS.** Use `--supersample 1`, or `--width 960 --height 540`.
-* **The wrong webcam opens.** Use `--camera 1`.
+* **The preview doesn't use your webcam.** The picture-in-picture in the bottom-right corner
+  shows what PeanutCam sees, and the name of the webcam it's using is at the top. Press
+  **K** to switch webcams, or run `run.bat --list-cameras` and pick one with
+  `run.bat --camera <number or name>`. PeanutCam skips virtual cameras such as OBS Virtual
+  Camera automatically. Close other apps that might be using the webcam (Zoom, Teams, the
+  Camera app, OBS), and check **Windows Settings > Privacy & security > Camera**: "Let
+  desktop apps access your camera" must be on.
 * **The peanut looks up or down when you look straight.** Press **C** while looking at the
   camera.
 

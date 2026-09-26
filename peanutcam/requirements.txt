@@ -3,3 +3,4 @@ opencv-python>=4.8
 numpy>=1.24
 moderngl>=5.8
 pyvirtualcam>=0.11
+cv2-enumerate-cameras>=1.1

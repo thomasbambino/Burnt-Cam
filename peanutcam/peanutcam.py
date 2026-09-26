@@ -33,24 +33,105 @@ PIVOT = np.array([0.0, -1.66, 0.0])  # the feet; the body leans around them
 
 
 # ---------------------------------------------------------------- video input
+# Virtual cameras (including the one PeanutCam itself sends to) are skipped
+# when picking a webcam automatically.
+VIRTUAL_CAMERA_WORDS = ("obs", "virtual", "unity video capture", "snap camera", "xsplit",
+                        "manycam", "peanutcam")
+
+
+def list_cameras() -> list[tuple[int, int, str]]:
+    """(index, backend, name) for every camera we can find."""
+    backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
+    try:
+        from cv2_enumerate_cameras import enumerate_cameras
+        cams = [(c.index, c.backend, c.name) for c in enumerate_cameras(backend)]
+        if cams:
+            return cams
+    except Exception:  # noqa: BLE001 - optional package / unsupported platform
+        pass
+    # No names available: probe the first few indices (quietly - OpenCV logs
+    # an error for every index that doesn't exist).
+    found = []
+    try:
+        level = cv2.utils.logging.getLogLevel()
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_SILENT)
+    except AttributeError:
+        level = None
+    for i in range(6):
+        cap = cv2.VideoCapture(i, backend)
+        if cap.isOpened():
+            found.append((i, backend, f"Camera {i}"))
+        cap.release()
+    if level is not None:
+        cv2.utils.logging.setLogLevel(level)
+    return found
+
+
+def is_virtual(name: str) -> bool:
+    return any(w in name.lower() for w in VIRTUAL_CAMERA_WORDS)
+
+
+def pick_cameras(spec: str) -> list[tuple[int, int, str]]:
+    """Order cameras by preference for --camera (auto, an index, or part of a name)."""
+    cams = list_cameras()
+    if spec.isdigit():
+        chosen = [c for c in cams if c[0] == int(spec)]
+        if not chosen:
+            backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
+            chosen = [(int(spec), backend, f"Camera {spec}")]
+    elif spec != "auto":
+        chosen = [c for c in cams if spec.lower() in c[2].lower()]
+        if not chosen:
+            raise RuntimeError(f"No camera named like {spec!r}. Found: {[c[2] for c in cams]}")
+    else:
+        chosen = []
+    real = [c for c in cams if not is_virtual(c[2]) and c not in chosen]
+    virtual = [c for c in cams if is_virtual(c[2]) and c not in chosen]
+    return chosen + real + virtual
+
+
 class CameraSource:
     """Grabs frames on a background thread so we always process the newest one."""
 
-    def __init__(self, index: int, width: int, height: int, fps: int):
-        backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
-        self.cap = cv2.VideoCapture(index, backend)
-        if not self.cap.isOpened():
-            raise RuntimeError(f"Could not open webcam #{index}. Try --camera 1 (or 2).")
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        self.cap.set(cv2.CAP_PROP_FPS, fps)
+    def __init__(self, cam: tuple[int, int, str], width: int, height: int, fps: int):
+        self.index, self.backend, self.name = cam
+        self.cap = None
+        # Some webcams only deliver black frames in MJPG mode or through
+        # DirectShow, so fall back through a few ways of opening them.
+        attempts = [(self.backend, True), (self.backend, False)]
+        if sys.platform == "win32":
+            attempts.append((cv2.CAP_MSMF, False))
+        for backend, mjpg in attempts:
+            cap = cv2.VideoCapture(self.index, backend)
+            if not cap.isOpened():
+                cap.release()
+                continue
+            if mjpg:
+                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            cap.set(cv2.CAP_PROP_FPS, fps)
+            if self._delivers_picture(cap):
+                self.cap = cap
+                break
+            cap.release()
+        if self.cap is None:
+            raise RuntimeError(f"Webcam '{self.name}' gave no picture.")
         self.frame = None
         self.seq = 0
         self.cond = threading.Condition()
         self.running = True
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
+
+    @staticmethod
+    def _delivers_picture(cap, timeout: float = 3.0) -> bool:
+        end = time.time() + timeout
+        while time.time() < end:
+            ok, frame = cap.read()
+            if ok and frame is not None and frame.mean() > 4:
+                return True
+        return False
 
     def _loop(self):
         while self.running:
@@ -74,6 +155,27 @@ class CameraSource:
         self.running = False
         self.thread.join(timeout=1.0)
         self.cap.release()
+
+
+def open_camera(cams, start: int, args):
+    """Open the first working camera from cams[start:], wrapping around."""
+    for k in range(len(cams)):
+        i = (start + k) % len(cams)
+        cam = cams[i]
+        print(f"[peanutcam] Trying webcam: {cam[2]} ...")
+        try:
+            src = CameraSource(cam, args.cam_width, args.cam_height, args.fps)
+        except RuntimeError as e:
+            print(f"[peanutcam]   {e}")
+            continue
+        print(f"[peanutcam] Using webcam: {cam[2]}  (press K in the preview to switch)")
+        return src, i
+    raise SystemExit(
+        "[peanutcam] Could not get a picture from any webcam.\n"
+        "  - Close other apps that may be using it (Zoom, Teams, Discord, the Camera app, OBS).\n"
+        "  - Check Windows Settings > Privacy & security > Camera: allow desktop apps.\n"
+        "  - Run with --list-cameras to see what PeanutCam can find."
+    )
 
 
 class FileSource:
@@ -250,13 +352,15 @@ HELP = [
     "C : calibrate (look straight, press C)",
     "R : reset calibration",
     "P : webcam picture-in-picture",
+    "K : switch to the next webcam",
     "H : hide this help",
     "Q / Esc : quit",
 ]
 
 
-def draw_hud(img, state, skin_name, fps):
-    lines = [f"{skin_name} | mask: {state['mask']} | bg: {state['bg']} | {fps:4.1f} fps"]
+def draw_hud(img, state, skin_name, fps, warning=None):
+    lines = [f"{skin_name} | mask: {state['mask']} | bg: {state['bg']} | {fps:4.1f} fps",
+             f"webcam: {state['camera']}"]
     if state["help"]:
         lines += HELP
     y = 26
@@ -264,6 +368,10 @@ def draw_hud(img, state, skin_name, fps):
         cv2.putText(img, line, (12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 3, cv2.LINE_AA)
         cv2.putText(img, line, (12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
         y += 22
+    if warning:
+        h = img.shape[0]
+        cv2.putText(img, warning, (12, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.putText(img, warning, (12, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (80, 200, 255), 2, cv2.LINE_AA)
 
 
 def draw_pip(img, frame, face_found):
@@ -279,7 +387,9 @@ def draw_pip(img, frame, face_found):
 # ----------------------------------------------------------------------- main
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="3D face-cam character filter (virtual webcam).")
-    ap.add_argument("--camera", type=int, default=0, help="webcam index (default 0)")
+    ap.add_argument("--camera", default="auto",
+                    help="auto (first real webcam), a number, or part of the webcam's name")
+    ap.add_argument("--list-cameras", action="store_true", help="list webcams and exit")
     ap.add_argument("--input", help="use an image/video file instead of the webcam")
     ap.add_argument("--cam-width", type=int, default=1280)
     ap.add_argument("--cam-height", type=int, default=720)
@@ -327,10 +437,23 @@ def main(argv=None):
         "bg": args.bg,
         "help": True,
         "pip": True,
+        "camera": args.input or "",
     }
 
-    source = FileSource(args.input) if args.input else CameraSource(
-        args.camera, args.cam_width, args.cam_height, args.fps)
+    if args.list_cameras:
+        for index, _, name in list_cameras():
+            print(f"  {index}: {name}{'  (virtual - skipped by auto)' if is_virtual(name) else ''}")
+        return
+    cams, cam_i = [], 0
+    if args.input:
+        source = FileSource(args.input)
+    else:
+        cams = pick_cameras(str(args.camera))
+        if not cams:
+            raise SystemExit("[peanutcam] No webcams found. Is one plugged in and allowed in "
+                             "Windows Settings > Privacy & security > Camera?")
+        source, cam_i = open_camera(cams, 0, args)
+        state["camera"] = cams[cam_i][2]
     tracker = FaceTracker(args.model, smoothing=args.smoothing)
     renderer = Renderer(args.width, args.height, supersample=args.supersample)
     pose = Pose(args.follow, args.pitch_offset)
@@ -398,7 +521,11 @@ def main(argv=None):
                 view = out.copy()
                 if state["pip"]:
                     draw_pip(view, frame, face is not None)
-                draw_hud(view, state, SKINS[state["skin"]]["name"], fps)
+                warning = None
+                if t - last_seen > 1.5:
+                    warning = ("No face found - face the camera in good light"
+                               + (", or press K to try another webcam" if len(cams) > 1 else ""))
+                draw_hud(view, state, SKINS[state["skin"]]["name"], fps, warning)
                 cv2.imshow(window, view)
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord("q"), 27):
@@ -423,6 +550,11 @@ def main(argv=None):
                     pose.reset()
                 elif key == ord("p"):
                     state["pip"] = not state["pip"]
+                elif key == ord("k") and len(cams) > 1:
+                    source.close()
+                    source, cam_i = open_camera(cams, cam_i + 1, args)
+                    state["camera"] = cams[cam_i][2]
+                    seq = 0
                 elif key == ord("h"):
                     state["help"] = not state["help"]
     except KeyboardInterrupt:
