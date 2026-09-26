@@ -27,23 +27,28 @@ webcam ──► MediaPipe face tracking ──► 3D peanut (rendered on your G
   **+ / −**.
 * Burnt Cam remembers your character, view, background and zoom for next time.
 
-## Setup (once)
+## Get started
 
-1. **Install Python 3.11 or 3.12** from <https://www.python.org/downloads/windows/>.
-   During setup, tick **"Add python.exe to PATH"**.
-2. **Install OBS Studio** from <https://obsproject.com>. Burnt Cam uses the
-   *OBS Virtual Camera* driver that comes with OBS. You don't need OBS open while you use
-   Burnt Cam.
-3. Double-click **`install.bat`**. It creates a local `.venv` folder and installs the
-   packages.
+1. Download and extract Burnt Cam, then double-click **`Burnt Cam.bat`**. That's the only
+   file you ever need to run.
+2. **The first time**, it sets everything up for you. This takes a few minutes and
+   downloads about 300 MB:
+   * its own private copy of Python, which doesn't affect any other Python on your PC
+   * the Microsoft Visual C++ runtime, if your PC doesn't have it
+   * **OBS Studio**, which provides the "OBS Virtual Camera" that Zoom and Discord see.
+     You never need to open OBS itself.
+   * Burnt Cam's packages, plus a **Burnt Cam** shortcut on your desktop
 
-## Use it
-
-1. Double-click **`run.bat`**. A preview window opens. The first run downloads the face
-   model, which is about 4 MB.
-2. In Zoom, Discord or another app, open the video settings and choose
+   Windows asks "Do you want to allow this app to make changes?" once or twice. That's for
+   OBS and the Visual C++ runtime, so click **Yes**.
+3. **After that**, double-click **Burnt Cam** on your desktop and it starts in a few
+   seconds.
+4. In Zoom, Discord or another app, open the video settings and choose
    **OBS Virtual Camera** as your camera.
-3. Look straight at the camera and press **C** to calibrate your neutral head pose.
+5. Look straight at the camera and press **C** to calibrate your neutral head pose.
+
+If Windows shows "Windows protected your PC" the first time, click **More info →
+Run anyway**. Windows shows this for any script downloaded from the internet.
 
 ### Keys (click the preview window first)
 
@@ -67,7 +72,8 @@ always gets a clean image.
 
 ### Options
 
-Pass options to `run.bat`, for example `run.bat --skin egg --bg green --view waist`.
+Most people never need these. To use them, open Command Prompt in the Burnt Cam folder and
+add them after the file name, for example `"Burnt Cam.bat" --skin egg --bg green --view waist`.
 
 | Option              | Default    | What it does                                                          |
 |---------------------|------------|-----------------------------------------------------------------------|
@@ -116,6 +122,12 @@ entries and change:
 
 ## Troubleshooting
 
+* **Setup stopped with an error.** Usually the internet connection dropped. Run
+  `Burnt Cam.bat` again, and it continues where it left off. Everything it installs lives
+  in `%LOCALAPPDATA%\BurntCam`. Delete that folder to start setup from scratch.
+* **You said No to installing OBS.** Burnt Cam then runs in preview-only mode and won't
+  ask again. Install OBS from <https://obsproject.com> yourself, or delete
+  `%LOCALAPPDATA%\BurntCam\skip-obs` to have Burnt Cam offer again.
 * **"Could not start the virtual camera".** Install OBS Studio 28 or newer. If OBS is open
   and its own **Start Virtual Camera** is on, turn it off, because only one program can
   drive the device.
@@ -124,8 +136,8 @@ entries and change:
 * **Low FPS.** Use `--supersample 1`, or `--width 960 --height 540`.
 * **The preview doesn't use your webcam.** The picture-in-picture in the bottom-right corner
   shows what Burnt Cam sees, and the name of the webcam it's using is at the top. Press
-  **K** to switch webcams, or run `run.bat --list-cameras` and pick one with
-  `run.bat --camera <number or name>`. Burnt Cam skips virtual cameras such as OBS Virtual
+  **K** to switch webcams, or run `"Burnt Cam.bat" --list-cameras` and pick one
+  with `"Burnt Cam.bat" --camera <number or name>`. Burnt Cam skips virtual cameras such as OBS Virtual
   Camera automatically. Close other apps that might be using the webcam (Zoom, Teams, the
   Camera app, OBS), and check **Windows Settings > Privacy & security > Camera**: "Let
   desktop apps access your camera" must be on.

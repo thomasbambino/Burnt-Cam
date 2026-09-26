@@ -19,9 +19,13 @@ import time
 import cv2
 import numpy as np
 
-from renderer import Renderer
-from skins import SKINS
-from tracker import FaceTracker
+# The private Python that "Burnt Cam.bat" sets up doesn't add this folder to the
+# import path by itself.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from renderer import Renderer  # noqa: E402
+from skins import SKINS  # noqa: E402
+from tracker import FaceTracker  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUILTIN_BACKGROUNDS = ["studio", "green", "webcam"]
@@ -345,9 +349,10 @@ def open_virtual_camera(args):
         print(
             "[burntcam] Could not start the virtual camera:\n"
             f"    {e}\n"
-            "  -> Install OBS Studio (https://obsproject.com). Burnt Cam sends video to\n"
-            "     the 'OBS Virtual Camera' device. Make sure OBS itself is NOT running\n"
-            "     its own virtual camera at the same time.\n"
+            "  -> Burnt Cam sends video through the 'OBS Virtual Camera' that comes with\n"
+            "     OBS Studio. If OBS isn't installed, install it from https://obsproject.com\n"
+            "     and start Burnt Cam again. If OBS is open, make sure its own\n"
+            "     'Start Virtual Camera' is off.\n"
             "  Continuing in preview-only mode."
         )
         return None
@@ -447,22 +452,49 @@ class BackgroundMedia:
             self.cap.release()
 
 
-def ask_for_background() -> str | None:
-    """Open a file picker and copy the chosen image/video into backgrounds/."""
+def pick_file_windows(title: str, exts: list[str]) -> str | None:
+    """The standard Windows "Open" dialog, via PowerShell (no tkinter needed)."""
+    import subprocess
+    pattern = ";".join(f"*{e}" for e in exts)
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms;"
+        "$d = New-Object System.Windows.Forms.OpenFileDialog;"
+        f"$d.Title = '{title}';"
+        f"$d.Filter = 'Pictures and videos|{pattern}|All files|*.*';"
+        "$f = New-Object System.Windows.Forms.Form -Property @{TopMost=$true};"
+        "if ($d.ShowDialog($f) -eq 'OK') { [Console]::OutputEncoding = [Text.Encoding]::UTF8; $d.FileName }"
+    )
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", script],
+                             capture_output=True, timeout=600,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    path = out.stdout.decode("utf-8", "replace").strip()
+    return path or None
+
+
+def pick_file_tk(title: str, exts: list[str]) -> str | None:
     try:
         import tkinter as tk
         from tkinter import filedialog
     except ImportError:
-        print(f"[burntcam] No file picker available - copy images or videos into {BACKGROUND_DIR}")
         return None
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)
-    exts = " ".join(f"*{e}" for e in sorted(IMAGE_EXTS | VIDEO_EXTS))
     path = filedialog.askopenfilename(
-        parent=root, title="Choose a background image or video",
-        filetypes=[("Images and videos", exts), ("All files", "*.*")])
+        parent=root, title=title,
+        filetypes=[("Pictures and videos", " ".join(f"*{e}" for e in exts)), ("All files", "*.*")])
     root.destroy()
+    return path or None
+
+
+def ask_for_background() -> str | None:
+    """Open a file picker and copy the chosen image/video into backgrounds/."""
+    exts = sorted(IMAGE_EXTS | VIDEO_EXTS)
+    title = "Choose a background picture or video"
+    path = pick_file_windows(title, exts) if sys.platform == "win32" else pick_file_tk(title, exts)
     if not path:
         return None
     if os.path.splitext(path)[1].lower() not in IMAGE_EXTS | VIDEO_EXTS:
