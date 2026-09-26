@@ -308,79 +308,116 @@ vec3 mapLizard(vec3 p) {
 }
 
 // ---------------------------------------------------------------- dark mage
-// A purple-robed sorcerer: tall curled hat with a gold band and gem, cheek
-// guards, armored chest with pauldrons, a robe down to the floor and a staff
-// topped with a glowing orb. Your face shows in the hat's opening.
-// Materials: 0 skin, 6 armor/hat, 7 gold, 8 glowing gem, 9 staff, 10 robe.
+// A tall, slim sorcerer: a narrow hat with spiral bands curling forward and
+// a fin behind it, big layered pauldrons, chrome-purple armor with lilac
+// trim, a blue-violet robe open at the front over armored legs, and a long
+// teal staff with a leaf-shaped loop and a glowing orb. Your face shows in
+// the hat's opening.
+// Materials: 0 skin, 6 hat, 7 trim, 8 orb, 9 staff, 10 robe, 11 armor,
+// 12 pauldrons, 13 hair.
 float sdTorus(vec3 p, float R, float r) {
     vec2 q = vec2(length(p.xz) - R, p.y);
     return length(q) - r;
 }
+vec3 rotZ(vec3 p, float a) {
+    float c = cos(a), s = sin(a);
+    return vec3(c * p.x + s * p.y, -s * p.x + c * p.y, p.z);
+}
+const vec3 MG_STAFF = vec3(-0.44, 0.0, 0.33);
+const vec3 MG_LOOP = vec3(-0.44, 1.04, 0.33);
+float mageHat(vec3 ph) {
+    float helm = sdEllipsoid(ph - vec3(0.0, 0.52, -0.03), vec3(0.27, 0.30, 0.28));
+    helm = smax(helm, -sdEllipsoid(ph - vec3(0.0, 0.36, 0.22), vec3(0.19, 0.27, 0.24)), 0.02);
+    const vec3 H0 = vec3(0.0, 0.62, -0.04), H1 = vec3(0.0, 0.97, -0.07), H2 = vec3(0.03, 1.26, -0.03);
+    const vec3 H3 = vec3(0.10, 1.48, 0.05), H4 = vec3(0.21, 1.61, 0.15);
+    float cone = sdRoundCone(ph, H0, H1, 0.255, 0.19);
+    cone = smin(cone, sdRoundCone(ph, H1, H2, 0.19, 0.12), 0.04);
+    cone = smin(cone, sdRoundCone(ph, H2, H3, 0.12, 0.06), 0.03);
+    cone = smin(cone, sdRoundCone(ph, H3, H4, 0.06, 0.006), 0.02);
+    float hat = smin(helm, cone, 0.06);
+    // The flat pointed fin behind the hat.
+    vec3 qf = ph;
+    qf.z = (qf.z + 0.24) * 3.0;
+    hat = smin(hat, sdRoundCone(qf, vec3(-0.06, 0.58, 0.0), vec3(-0.36, 1.32, 0.0), 0.17, 0.005) / 3.0, 0.03);
+    vec3 qh = ph;
+    qh.x = abs(qh.x);
+    return smin(hat, sdEllipsoid(qh - vec3(0.20, 0.33, 0.05), vec3(0.06, 0.22, 0.13)), 0.04);  // cheek guards
+}
+float magePauldron(vec3 qs, out float edge) {
+    // Two big curved plates per shoulder, the upper one flaring up and out.
+    vec3 q1 = rotZ(qs - vec3(0.40, -0.01, 0.0), 0.36);
+    vec3 q2 = rotZ(qs - vec3(0.47, 0.15, -0.04), 0.78);
+    q1.y += 0.35 * q1.x * q1.x;                           // curve the plates down at the ends
+    q2.y += 0.30 * q2.x * q2.x;
+    float d1 = sdEllipsoid(q1, vec3(0.35, 0.09, 0.29)) * 0.8;
+    float d2 = sdEllipsoid(q2, vec3(0.33, 0.065, 0.25)) * 0.8;
+    edge = d1 < d2 ? length(q1.xz / vec2(0.35, 0.29)) : length(q2.xz / vec2(0.33, 0.25));
+    return min(min(d1, d2), length(qs - vec3(0.31, -0.08, 0.0)) - 0.12);
+}
 vec3 mapMage(vec3 p) {
     vec3 ph = toHead(p);
     vec3 pb = toBody(p);
-
-    // Head
-    vec3 res = vec3(sdEllipsoid(ph - vec3(0.0, 0.40, 0.0), vec3(0.24, 0.30, 0.26)), 0.0, 1.0);
-
-    // Hat: a helmet-like shell with the face cut out, and a tall cone that
-    // curls backwards.
-    float helm = sdEllipsoid(ph - vec3(0.0, 0.50, -0.04), vec3(0.32, 0.31, 0.32));
-    helm = smax(helm, -sdEllipsoid(ph - vec3(0.0, 0.34, 0.24), vec3(0.25, 0.31, 0.28)), 0.03);
-    // The cone sweeps up and far back into a sharp, drooping point.
-    // It also leans off to one side so the curl reads from the front.
-    const vec3 H0 = vec3(0.0, 0.64, -0.08), H1 = vec3(0.03, 0.98, -0.20), H2 = vec3(-0.04, 1.20, -0.38);
-    const vec3 H3 = vec3(-0.20, 1.31, -0.55), H4 = vec3(-0.42, 1.27, -0.68);
-    float cone = sdRoundCone(ph, H0, H1, 0.30, 0.21);
-    cone = smin(cone, sdRoundCone(ph, H1, H2, 0.21, 0.13), 0.05);
-    cone = smin(cone, sdRoundCone(ph, H2, H3, 0.13, 0.065), 0.04);
-    cone = smin(cone, sdRoundCone(ph, H3, H4, 0.065, 0.008), 0.03);
-    float hat = smin(helm, cone, 0.08);
-    vec3 qh = ph;
-    qh.x = abs(qh.x);
-    hat = smin(hat, sdEllipsoid(qh - vec3(0.25, 0.30, 0.03), vec3(0.07, 0.25, 0.15)), 0.05);  // cheek guards
-    if (hat < res.x) res = vec3(hat, 6.0, 1.0);
-    float band = sdTorus(ph - vec3(0.0, 0.64, -0.04), 0.305, 0.03);
-    if (band < res.x) res = vec3(band, 7.0, 1.0);
-    float gem = length(ph - vec3(0.0, 0.66, 0.28)) - 0.05;
-    if (gem < res.x) res = vec3(gem, 8.0, 1.0);
-
-    // Body: collar, armored chest, pauldrons and a robe flaring to the floor.
-    float collar = sdRoundCone(pb, vec3(0.0, -0.05, 0.0), vec3(0.0, 0.18, 0.0), 0.17, 0.14);
-    float chest = sdEllipsoid(pb - vec3(0.0, -0.28, 0.0), vec3(0.40, 0.36, 0.27));
     vec3 qs = pb;
     qs.x = abs(qs.x);
-    float pauld = sdEllipsoid(qs - vec3(0.42, -0.03, 0.0), vec3(0.24, 0.13, 0.25));
-    float armor = smin(smin(collar, chest, 0.08), pauld, 0.04);
-    if (armor < res.x) res = vec3(armor, 6.0, 0.0);
-    float robe = sdRoundCone(pb, vec3(0.0, -0.45, 0.0), vec3(0.0, -1.48, 0.0), 0.33, 0.52);
-    robe = max(robe, (GROUND + 0.01) - pb.y);
-    if (robe < res.x) res = vec3(robe, 10.0, 0.0);
-    float trim = min(sdTorus(pb - vec3(0.0, -0.52, 0.0), 0.345, 0.035),      // belt
-                     sdTorus(pb - vec3(0.0, GROUND + 0.05, 0.0), 0.545, 0.03)); // hem
-    trim = min(trim, sdTorus(qs - vec3(0.42, -0.07, 0.0), 0.225, 0.02));    // pauldron rims
+
+    // Head, hat and a dark fringe of hair framing the face.
+    vec3 res = vec3(sdEllipsoid(ph - vec3(0.0, 0.42, 0.0), vec3(0.20, 0.26, 0.22)), 0.0, 1.0);
+    float hat = mageHat(ph);
+    if (hat < res.x) res = vec3(hat, 6.0, 1.0);
+    vec3 qh = ph;
+    qh.x = abs(qh.x);
+    float hair = smin(sdEllipsoid(qh - vec3(0.19, 0.52, 0.12), vec3(0.05, 0.11, 0.07)),
+                      sdEllipsoid(qh - vec3(0.18, 0.36, 0.11), vec3(0.04, 0.14, 0.05)), 0.04);
+    if (hair < res.x) res = vec3(hair, 13.0, 1.0);
+
+    // Slim armored body: collar, chest, narrow waist, legs with pointed boots.
+    float armor = sdRoundCone(pb, vec3(0.0, -0.02, 0.0), vec3(0.0, 0.20, -0.01), 0.15, 0.14);
+    armor = smin(armor, sdEllipsoid(pb - vec3(0.0, -0.22, 0.0), vec3(0.27, 0.30, 0.17)), 0.06);
+    armor = smin(armor, sdEllipsoid(pb - vec3(0.0, -0.60, 0.0), vec3(0.20, 0.18, 0.15)), 0.10);
+    float legs = smin(sdRoundCone(qs, vec3(0.11, -0.68, 0.0), vec3(0.15, -1.13, 0.05), 0.10, 0.07),
+                      sdRoundCone(qs, vec3(0.15, -1.13, 0.05), vec3(0.15, -1.55, 0.0), 0.07, 0.055), 0.03);
+    legs = smin(legs, sdRoundCone(qs, vec3(0.15, -1.58, -0.03), vec3(0.17, -1.645, 0.27), 0.07, 0.006), 0.04);
+    armor = min(armor, legs);
+    // Arms: the right one (screen left) grips the staff, the left hangs down.
+    float wave = 0.03 * sin(uTime * 1.7);
+    float arms = smin(sdRoundCone(pb, vec3(-0.30, -0.08, 0.0), vec3(-0.46, -0.40, 0.10), 0.075, 0.06),
+                      sdRoundCone(pb, vec3(-0.46, -0.40, 0.10), vec3(-0.44, -0.31, 0.26), 0.06, 0.05), 0.03);
+    arms = min(arms, smin(sdRoundCone(pb, vec3(0.30, -0.08, 0.0), vec3(0.42, -0.46, 0.03), 0.075, 0.06),
+                          sdRoundCone(pb, vec3(0.42, -0.46, 0.03), vec3(0.47, -0.75, 0.10 + wave), 0.06, 0.05), 0.03));
+    armor = min(armor, arms);
+    if (armor < res.x) res = vec3(armor, 11.0, 0.0);
+
+    float edge;
+    float pa = magePauldron(qs, edge);
+    if (pa < res.x) res = vec3(pa, 12.0, 0.0);
+
+    // Spiral knee guards and wrist cuffs.
+    float trim = sdTorus((qs - vec3(0.16, -1.12, 0.115)).xzy, 0.045, 0.014);
+    trim = min(trim, sdTorus(pb - vec3(-0.45, -0.36, 0.20), 0.06, 0.015));
+    trim = min(trim, sdTorus(pb - vec3(0.46, -0.70, 0.09 + wave), 0.058, 0.015));
     if (trim < res.x) res = vec3(trim, 7.0, 0.0);
 
-    // Sleeves and hands. The right arm (screen left) holds the staff.
-    vec3 sl = vec3(0.44, -0.10, 0.0);
-    float arms = smin(sdRoundCone(pb, sl, vec3(0.57, -0.55, 0.06), 0.10, 0.085),
-                      sdRoundCone(pb, vec3(0.57, -0.55, 0.06), vec3(0.51, -0.86, 0.18), 0.085, 0.075), 0.03);
-    vec3 sr = vec3(-0.44, -0.10, 0.0);
-    arms = min(arms, smin(sdRoundCone(pb, sr, vec3(-0.64, -0.40, 0.12), 0.10, 0.085),
-                          sdRoundCone(pb, vec3(-0.64, -0.40, 0.12), vec3(-0.64, -0.47, 0.30), 0.085, 0.075), 0.03));
-    if (arms < res.x) res = vec3(arms, 10.0, 0.0);
-    float hands = min(length(pb - vec3(0.50, -0.93, 0.20)) - 0.07,
-                      sdEllipsoid(pb - vec3(-0.64, -0.48, 0.34), vec3(0.075, 0.09, 0.07)));
+    // Robe: flares from the waist and opens at the front to show the legs.
+    float ang = atan(pb.x, pb.z);                        // 0 = straight ahead
+    float robe = sdRoundCone(pb, vec3(0.0, -0.58, 0.0), vec3(0.0, -1.50, -0.05), 0.23, 0.50);
+    robe += 0.02 * sin(ang * 9.0 + 0.5) * smoothstep(-0.7, -1.5, pb.y);   // folds
+    robe = abs(robe + 0.02) - 0.02;                      // a cloth shell, not a solid cone
+    robe = max(robe, -(abs(ang) - mix(0.15, 0.95, smoothstep(-0.62, -1.35, pb.y))));
+    robe = max(robe, (GROUND + 0.05) - pb.y);
+    if (robe < res.x) res = vec3(robe, 10.0, 0.0);
+
+    // Hands.
+    float hands = min(sdEllipsoid(pb - vec3(-0.44, -0.30, 0.33), vec3(0.065, 0.075, 0.06)),
+                      sdEllipsoid(pb - vec3(0.48, -0.82, 0.12 + wave), vec3(0.05, 0.08, 0.045)));
     if (hands < res.x) res = vec3(hands, 0.0, 0.0);
 
-    // Staff with a gold ring and a glowing orb on top.
-    vec3 st = vec3(-0.64, 0.0, 0.34);
-    float staff = sdCapsule(pb, vec3(st.x, GROUND + 0.02, st.z), vec3(st.x, 0.62, st.z), 0.032);
+    // Teal staff with a leaf-shaped loop, a glowing orb and a spike on top.
+    float staff = sdCapsule(pb, vec3(MG_STAFF.x, GROUND + 0.04, MG_STAFF.z), vec3(MG_STAFF.x, 0.92, MG_STAFF.z), 0.024);
+    vec3 qo = pb - MG_LOOP;
+    staff = min(staff, sdTorus(vec3(qo.x, qo.z, qo.y * 0.62), 0.085, 0.017));
+    staff = min(staff, sdRoundCone(pb, MG_LOOP + vec3(0.0, 0.13, 0.0), MG_LOOP + vec3(0.0, 0.32, 0.0), 0.03, 0.004));
     if (staff < res.x) res = vec3(staff, 9.0, 0.0);
-    vec3 qo = pb - vec3(st.x, 0.80, st.z);
-    float ring = min(sdTorus(qo.xzy, 0.15, 0.024), sdCapsule(pb, vec3(st.x, 0.60, st.z), vec3(st.x, 0.66, st.z), 0.045));
-    if (ring < res.x) res = vec3(ring, 7.0, 0.0);
-    float orb = length(qo) - 0.085;
+    float orb = length(qo) - 0.042;
     if (orb < res.x) res = vec3(orb, 8.0, 0.0);
     return res;
 }
@@ -533,32 +570,56 @@ vec3 lizardAlbedo(vec3 pos, vec3 n, vec3 m, out float gloss) {
     return col;
 }
 
-vec3 mageAlbedo(vec3 pos, vec3 m, out float gloss, out vec3 emit) {
+vec3 mageAlbedo(vec3 pos, vec3 n, vec3 m, out float gloss, out vec3 emit) {
+    const vec3 ARMOR = vec3(0.44, 0.15, 0.64);
+    const vec3 TRIM = vec3(0.92, 0.60, 0.96);
     emit = vec3(0.0);
-    if (m.y > 9.5) {                                                                                // robe
-        gloss = 0.3;
-        vec3 pb = toBody(pos);
-        vec3 c = vec3(0.21, 0.08, 0.36) * (0.9 + 0.2 * fbm(pos * 6.0));
-        // A lighter front panel, widening toward the hem, edged in gold.
-        float halfw = 0.10 + 0.14 * clamp((-0.55 - pb.y) / 1.0, 0.0, 1.0);
-        float front = step(0.0, pb.z);
-        float edge = abs(abs(pb.x) - halfw);
-        if (pb.y < -0.56) {
-            c = mix(c, vec3(0.36, 0.20, 0.58), front * step(abs(pb.x), halfw));
-            c = mix(c, vec3(0.95, 0.72, 0.30), front * (1.0 - smoothstep(0.008, 0.016, edge)));
+    vec3 ph = toHead(pos);
+    vec3 pb = toBody(pos);
+    if (m.y > 12.5) { gloss = 0.3; return vec3(0.18, 0.09, 0.30); }                  // hair
+    if (m.y > 11.5) {                                                                // pauldrons
+        gloss = 1.3;
+        vec3 qs = pb;
+        qs.x = abs(qs.x);
+        float edge;
+        magePauldron(qs, edge);
+        return mix(ARMOR, TRIM, smoothstep(0.80, 0.86, edge));
+    }
+    if (m.y > 10.5) {                                                                // armor
+        gloss = 1.2;
+        float band = 0.0;
+        bool limb = pb.y < -0.72 || abs(pb.x) > 0.29;
+        if (limb) band = 1.0 - smoothstep(0.05, 0.09, abs(fract(pb.y * 5.5) - 0.5));
+        else {
+            float v = abs(pb.y - (0.02 - 1.1 * (0.20 - min(abs(pb.x), 0.20))));   // V-neck
+            band = max(1.0 - smoothstep(0.008, 0.016, abs(pb.y + 0.50)),        // chest plate edge
+                       (1.0 - smoothstep(0.008, 0.016, v)) * step(0.0, pb.z) * step(abs(pb.x), 0.2));
         }
-        return c;
+        return mix(ARMOR, TRIM, band);
     }
-    if (m.y > 8.5) { gloss = 0.4; return vec3(0.20, 0.15, 0.24); }                                  // staff
-    if (m.y > 7.5) {                                                                                // gem / orb
+    if (m.y > 9.5) {                                                                 // robe
+        gloss = 0.6;
+        return vec3(0.25, 0.15, 0.55) * (0.85 + 0.3 * fbm(pos * 4.0));
+    }
+    if (m.y > 8.5) {                                                                 // staff
+        gloss = 1.6;
+        float band = 1.0 - smoothstep(0.04, 0.08, abs(fract(pb.y * 3.0) - 0.5));
+        return mix(vec3(0.16, 0.70, 0.68), vec3(0.70, 0.96, 0.92), band * step(pb.y, 0.9));
+    }
+    if (m.y > 7.5) {                                                                 // glowing orb
         gloss = 2.0;
-        emit = vec3(0.10, 0.55, 0.25) * (0.8 + 0.2 * sin(uTime * 3.0));
-        return vec3(0.15, 0.75, 0.40);
+        emit = vec3(0.35, 0.50, 0.08) * (0.8 + 0.2 * sin(uTime * 3.0));
+        return vec3(0.80, 0.95, 0.30);
     }
-    if (m.y > 6.5) { gloss = 1.4; return vec3(0.95, 0.72, 0.30); }                                  // gold
-    if (m.y > 5.5) { gloss = 0.55; return vec3(0.30, 0.12, 0.50); }                                 // armor, hat
+    if (m.y > 6.5) { gloss = 1.3; return TRIM; }                                     // trim
+    if (m.y > 5.5) {                                                                 // hat
+        gloss = 1.3;
+        float a = atan(ph.x, ph.z) / 6.2832;
+        float spiral = 1.0 - smoothstep(0.05, 0.09, abs(fract(ph.y * 2.6 - a) - 0.5));
+        return mix(ARMOR, TRIM, spiral * smoothstep(0.66, 0.72, ph.y));
+    }
     gloss = 0.2;
-    return vec3(0.86, 0.80, 0.86);                                                                  // skin
+    return vec3(0.95, 0.80, 0.66);                                                   // skin
 }
 
 // -------------------------------------------------------------------- main
@@ -599,7 +660,7 @@ void main() {
     // Bounding sphere around the character to skip empty pixels quickly.
     vec3 oc = ro - (uOffset + vec3(0.0, -0.25, 0.0));
     float b = dot(oc, rd);
-    float bR = uShape == 1 ? 3.2 : (uShape == 2 ? 2.4 : 2.1);
+    float bR = uShape == 1 ? 3.2 : (uShape == 2 ? 2.5 : 2.1);
     float h = b * b - (dot(oc, oc) - bR * bR);
     if (h > 0.0) {
         h = sqrt(h);
@@ -623,7 +684,7 @@ void main() {
             vec3 faceC = vec3(0.0);
 
             if (uShape == 2) {
-                alb = mageAlbedo(pos, m, gloss, emit);
+                alb = mageAlbedo(pos, n, m, gloss, emit);
             } else if (uShape == 1) {
                 alb = lizardAlbedo(pos, n, m, gloss);
             } else if (m.y < 0.5) {

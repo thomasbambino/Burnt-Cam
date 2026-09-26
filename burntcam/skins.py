@@ -144,17 +144,18 @@ SKINS = [
         "top": 0.86,                           # top of the eyes (for camera framing)
     },
     {
-        # A purple-robed sorcerer in the spirit of Yu-Gi-Oh's Dark Magician:
-        # tall curled hat with a gold band, armored robe and a staff with a
-        # glowing orb. Your whole face shows in the hat's opening.
+        # A sorcerer in the spirit of Yu-Gi-Oh's Dark Magician: tall spiral
+        # hat, winged pauldrons, chrome-purple armor with lilac trim, an open
+        # blue-violet robe and a teal staff with a glowing orb. Your whole
+        # face shows in the hat's opening.
         "name": "Dark Mage",
         "shape": "mage",                       # custom model (see mapMage in renderer.py)
         "default_mask": "full",
-        "head": (0.0, 0.40, 0.0, 0.30),
+        "head": (0.0, 0.42, 0.0, 0.24),
         "head_scale": (1.0, 1.0, 1.0),
         "body": (0.0, -0.28, 0.0, 0.40),
         "body_scale": (1.0, 1.0, 1.0),
-        "top": 1.38,                           # hat tip, for camera framing
+        "top": 1.62,                           # hat tip, for camera framing
         "blend": 0.1,
         "bumps": 0.0,
         "body_follow": 0.2,
@@ -167,8 +168,8 @@ SKINS = [
         "limbs": False,
         "limb_color": (0.33, 0.14, 0.55),
         "glove_color": (0.86, 0.80, 0.86),
-        "face_size": 0.95,
-        "face_y": 0.40,
+        "face_size": 0.80,
+        "face_y": 0.42,
         "face_tint": (0.92, 0.90, 1.0),        # a touch of the mage's pale, cool skin
         "tint_amount": 0.15,
     },
