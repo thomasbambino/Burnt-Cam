@@ -1,0 +1,66 @@
+name: Build Burnt Cam installer
+
+# Builds BurntCamSetup.exe on Windows and publishes it as the
+# "burntcam-latest" release, so there's always a direct download link.
+on:
+  push:
+    paths:
+      - "burntcam/**"
+      - ".github/workflows/burntcam-installer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: burntcam-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build app folder (private Python + packages + face model)
+        shell: pwsh
+        run: ./burntcam/installer/build.ps1 -Out build/app
+
+      - name: Find the latest OBS Studio installer
+        id: obs
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $rel = gh api repos/obsproject/obs-studio/releases/latest | ConvertFrom-Json
+          $asset = $rel.assets | Where-Object { $_.name -match 'Installer\.exe$' -and $_.name -notmatch 'arm64' } |
+                   Sort-Object { if ($_.name -match 'x64') { 0 } else { 1 } } | Select-Object -First 1
+          if (-not $asset) { throw "No OBS installer found in release $($rel.tag_name)" }
+          Write-Host "OBS $($rel.tag_name): $($asset.browser_download_url)"
+          "url=$($asset.browser_download_url)" >> $env:GITHUB_OUTPUT
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DMyAppVersion=1.0.${{ github.run_number }}" "/DObsUrl=${{ steps.obs.outputs.url }}" "/DSourceDir=$PWD\build\app" burntcam\installer\burntcam.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+          Get-Item dist\BurntCamSetup.exe | Format-List Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BurntCamSetup
+          path: dist/BurntCamSetup.exe
+
+      - name: Publish as the "burntcam-latest" release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Replace the previous build (fine if there isn't one yet).
+          try { gh release delete burntcam-latest --cleanup-tag --yes 2>&1 | Out-Null } catch { }
+          $notes = "Latest Burnt Cam build from ``${{ github.ref_name }}`` (${{ github.sha }}).`n`nDownload **BurntCamSetup.exe**, run it and follow the steps. If Windows says 'Windows protected your PC', click **More info -> Run anyway** (the installer isn't code-signed)."
+          gh release create burntcam-latest dist/BurntCamSetup.exe --target "${{ github.sha }}" --prerelease --title "Burnt Cam (latest build)" --notes $notes

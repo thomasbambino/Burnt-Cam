@@ -27,7 +27,23 @@ webcam ──► MediaPipe face tracking ──► 3D peanut (rendered on your G
   **+ / −**.
 * Burnt Cam remembers your character, view, background and zoom for next time.
 
-## Get started
+## Install (easiest)
+
+1. Download **BurntCamSetup.exe** from the
+   [latest release](https://github.com/thomasbambino/zoom/releases/tag/burntcam-latest).
+2. Run it. If Windows says "Windows protected your PC", click **More info → Run anyway**.
+   The installer isn't code-signed, so Windows shows this for it.
+3. Click through the setup and say **Yes** when Windows asks for permission. That's the
+   only permission prompt. The setup also installs OBS Studio (for the virtual camera) and
+   the Microsoft Visual C++ runtime if your PC needs them.
+4. Start **Burnt Cam** from the desktop or the Start menu. There's no console window;
+   it opens straight to the preview.
+
+Your settings and uploaded backgrounds are kept in `%LOCALAPPDATA%\BurntCam`, so they
+survive updates. To update, just run a newer `BurntCamSetup.exe`. To uninstall, use
+Windows **Settings → Apps**.
+
+## Or run it from the ZIP
 
 1. Download and extract Burnt Cam, then double-click **`Burnt Cam.bat`**. That's the only
    file you ever need to run.
@@ -150,6 +166,15 @@ entries and change:
   it harder.
 * **In Zoom/Discord the camera is called "OBS Virtual Camera", not "Burnt Cam".** That's
   the name of the virtual camera driver that OBS installs, and Burnt Cam can't rename it.
+
+## Building the installer
+
+`.github/workflows/burntcam-installer.yml` builds `BurntCamSetup.exe` on a Windows
+GitHub Actions runner whenever `burntcam/` changes, and publishes it as the
+`burntcam-latest` release. `installer/build.ps1` prepares the app folder: the embeddable
+Python with all packages, the code and the face model, plus a smoke test.
+`installer/burntcam.iss` is the Inno Setup script that packs it, downloads and installs OBS
+and the Visual C++ runtime, and creates the shortcuts.
 
 ## How it works
 

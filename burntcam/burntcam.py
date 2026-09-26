@@ -28,13 +28,38 @@ from skins import SKINS  # noqa: E402
 from tracker import FaceTracker  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _data_dir() -> str:
+    """Where settings, backgrounds and logs go.
+
+    Next to the code for the ZIP version; in %LOCALAPPDATA%\\BurntCam when
+    installed by BurntCamSetup.exe (Program Files is read-only).
+    """
+    if not os.path.exists(os.path.join(HERE, "installed.txt")):
+        return HERE
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    path = os.path.join(base, "BurntCam")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+DATA_DIR = _data_dir()
+
+# Started from the Start menu / desktop shortcut there is no console window
+# (pythonw.exe), so send messages to a log file and errors to message boxes.
+WINDOWED = sys.stdout is None or sys.stderr is None
+if WINDOWED:
+    sys.stdout = sys.stderr = open(os.path.join(DATA_DIR, "burntcam.log"), "w",
+                                   encoding="utf-8", buffering=1)
+
 BUILTIN_BACKGROUNDS = ["studio", "green", "webcam"]
-BACKGROUND_DIR = os.path.join(HERE, "backgrounds")
+BACKGROUND_DIR = os.path.join(DATA_DIR, "backgrounds")
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".gif"}
 MASKS = ["features", "full", "off"]
 VIEWS = {"full": "Full body", "waist": "Waist up", "chest": "Chest up", "face": "Close-up"}
-SETTINGS_FILE = os.path.join(HERE, "settings.json")
+SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 GROUND = -1.66
 
 # Image space (x right, y down, z away) -> render space (x right, y up, z toward viewer).
@@ -335,11 +360,12 @@ def skin_uniforms(skin: dict) -> dict:
 
 # ------------------------------------------------------------ virtual camera
 def open_virtual_camera(args):
+    """Returns (camera or None, a short note for the preview when it failed)."""
     try:
         import pyvirtualcam
     except ImportError:
         print("[burntcam] pyvirtualcam not installed - preview only.")
-        return None
+        return None, "Virtual camera off: pyvirtualcam is missing"
     try:
         cam = pyvirtualcam.Camera(
             args.width, args.height, args.fps,
@@ -355,10 +381,10 @@ def open_virtual_camera(args):
             "     'Start Virtual Camera' is off.\n"
             "  Continuing in preview-only mode."
         )
-        return None
+        return None, "Virtual camera off - install OBS Studio (obsproject.com), or close OBS"
     print(f"[burntcam] Virtual camera running: {cam.device}  "
           f"-> select it as your camera in Zoom/Discord/Teams.")
-    return cam
+    return cam, None
 
 
 # ---------------------------------------------------------------------- views
@@ -603,7 +629,9 @@ def parse_args(argv=None):
     ap.add_argument("--supersample", type=float, default=1.5,
                     help="render scale for anti-aliasing; lower (1.0) for slow GPUs")
     ap.add_argument("--device", default=None, help="virtual camera device name (optional)")
-    ap.add_argument("--model", default=os.path.join(HERE, "models", "face_landmarker.task"))
+    bundled_model = os.path.join(HERE, "models", "face_landmarker.task")
+    ap.add_argument("--model", default=bundled_model if os.path.exists(bundled_model)
+                    else os.path.join(DATA_DIR, "models", "face_landmarker.task"))
     ap.add_argument("--no-vcam", action="store_true", help="don't send to a virtual camera")
     ap.add_argument("--no-preview", action="store_true", help="don't open a preview window")
     ap.add_argument("--frames", type=int, default=0, help="stop after N frames (0 = run forever)")
@@ -665,7 +693,7 @@ def main(argv=None):
     tracker.tongue_sensitivity = max(0.1, args.tongue_sensitivity)
     renderer = Renderer(args.width, args.height, supersample=args.supersample)
     pose = Pose(args.follow, args.pitch_offset)
-    vcam = None if args.no_vcam else open_virtual_camera(args)
+    vcam, vcam_note = (None, None) if args.no_vcam else open_virtual_camera(args)
     preview = not args.no_preview
     window = "Burnt Cam (preview)"
 
@@ -761,7 +789,7 @@ def main(argv=None):
                 view = out.copy()
                 if state["pip"]:
                     draw_pip(view, frame, face is not None)
-                warning = None
+                warning = vcam_note
                 if t - last_seen > 1.5:
                     warning = ("No face found - face the camera in good light"
                                + (", or press K to try another webcam" if len(cams) > 1 else ""))
@@ -825,5 +853,25 @@ def main(argv=None):
             cv2.destroyAllWindows()
 
 
+def show_error(message: str):
+    print(message)
+    if WINDOWED and sys.platform == "win32":
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, message, "Burnt Cam", 0x10)
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit as e:
+        if isinstance(e.code, str):  # our own "can't continue" messages
+            show_error(e.code.replace("[burntcam] ", ""))
+            sys.exit(1)
+        raise
+    except Exception:  # noqa: BLE001 - last-resort report for the windowed app
+        import traceback
+        traceback.print_exc()
+        show_error("Burnt Cam hit an error and had to close.\n\n"
+                   f"{traceback.format_exc(limit=3)}\n"
+                   f"Full details: {os.path.join(DATA_DIR, 'burntcam.log')}")
+        sys.exit(1)

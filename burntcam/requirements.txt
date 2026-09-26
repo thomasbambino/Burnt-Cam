@@ -1,5 +1,5 @@
 mediapipe>=0.10.14
-opencv-python>=4.8
+opencv-contrib-python>=4.8   # same as mediapipe uses; includes the preview window
 numpy>=1.24
 moderngl>=5.8
 pyvirtualcam>=0.11
