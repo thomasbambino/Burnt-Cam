@@ -16,11 +16,14 @@ webcam ──► MediaPipe face tracking ──► 3D peanut (rendered on your G
 * Opening your mouth makes the head stretch a little (squash and stretch).
 * It comes with nine characters: **Burnt Peanut**, **Golden Peanut**, **Egg**, **Potato**,
   **Lizard**, **Dark Mage**, **Duelist**, **Sea Sponge** and **Peanut Pal**.
-* The **Burnt Peanut** is modelled on TheBurntPeanut's avatar: a single roasted peanut in
-  its shell that floats where your head is, with your real eyes and mouth blown up on the
-  front (no eyebrows), pink lips, a dry cracked tan shell and a propeller beanie. Press
-  **T** to swap the beanie for a cowboy hat or go hatless. The **Golden Peanut** is the
-  same peanut in gold, and **Peanut Pal** is the full-body peanut with stick arms and legs.
+* The **Burnt Peanut** is modelled on TheBurntPeanut's avatar: a tall peanut in its shell
+  that floats where your head is. Your whole face shows on the top lobe, see-through except
+  for your eyes and mouth so the shell shows through it, with the eyebrows cut out and the
+  lips tinted pink. The shell is a photo of a real peanut shell wrapped around it
+  (`textures/peanut_shell.png`; swap in a sharper photo of your own if you have one). It
+  wears a rainbow propeller beanie. Press **T** for the black cowboy hat or no hat. The
+  **Golden Peanut** is the same peanut in gold, and **Peanut Pal** is the old full-body
+  peanut with stick arms and legs.
 * The lizard is a cute, upright cartoon inspired by Tom Lizard from Pixar's
   *Hoppers*. It has a soft green bean-shaped body, big googly eyes, a wide smile and a
   curly tail. By default it's a *puppet*: its mouth opens when you open yours, its tongue
@@ -155,7 +158,10 @@ entries and change:
   `hat` picks its starting hat (`none`, `propeller` or `cowboy`).
 * `cracks`: dry dark cracks in the shell. `eye_scale`, `mouth_scale` and `eye_spread` blow
   up your eyes and mouth on the shell and push the eyes apart. `lip_tint` and `lip_amount`
-  tint your lips.
+  tint your lips. `face_opacity` makes the face see-through outside the eyes and mouth.
+* `shell_texture`: a picture in the `textures` folder wrapped around the shell (ridges run
+  along the character). `shell_tint` colors it, `shell_bump` adds relief from it, and
+  `shell_repeat` sets how often it repeats around and along the character.
 * `"shape": "lizard"`, `"mage"`, `"duelist"` or `"sponge"` switches to one of the custom
   models (`mapLizard`, `mapMage`, `mapDuelist` or `mapSponge` in `renderer.py`). `body_yaw` turns the lizard's body.
 

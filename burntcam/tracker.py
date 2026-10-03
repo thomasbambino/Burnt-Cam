@@ -146,6 +146,7 @@ class FaceState:
     blink: tuple             # (screen-left eye, screen-right eye), 0 open .. 1 shut
     tongue: float            # 0..1 tongue sticking out
     mask_full: np.ndarray    # (MASK, MASK) uint8 face-oval mask in tex space
+    mask_full_no_brows: np.ndarray  # the face oval with the eyebrows cut out
     mask_features: np.ndarray  # eyes + brows + mouth mask in tex space
     mask_no_brows: np.ndarray  # eyes + mouth, without the brows
     mask_mouth: np.ndarray     # mouth only
@@ -283,6 +284,8 @@ class FaceTracker:
             tongue=tongue,
             blink=self._blink(tex),
             mask_full=self._mask(tex, [topo.oval], [], erode=0.035),
+            mask_full_no_brows=self._mask(tex, [topo.oval], [], erode=0.035,
+                                          cut=[topo.left_brow, topo.right_brow]),
             mask_features=self._mask(
                 tex,
                 [],
@@ -312,7 +315,7 @@ class FaceTracker:
         return out[0][1], out[1][1]
 
     @staticmethod
-    def _mask(tex, loops, hulls, erode=0.0, pad=1.0) -> np.ndarray:
+    def _mask(tex, loops, hulls, erode=0.0, pad=1.0, cut=()) -> np.ndarray:
         S = MASK_TEX_SIZE
         m = np.zeros((S, S), np.uint8)
         px = lambda idx: np.round(tex[idx] * S).astype(np.int32)
@@ -326,5 +329,10 @@ class FaceTracker:
         if erode > 0:
             k = max(1, int(erode * S))
             m = cv2.erode(m, np.ones((k, k), np.uint8))
+        for idx in cut:
+            # Punch a feature (e.g. an eyebrow) out of the mask, with some margin.
+            hull = cv2.convexHull(px(idx))
+            cv2.fillConvexPoly(m, hull, 0, lineType=cv2.LINE_AA)
+            cv2.polylines(m, [hull], True, 0, thickness=max(1, int(S / 28)), lineType=cv2.LINE_AA)
         blur = max(3, (S // 24) | 1)
         return cv2.GaussianBlur(m, (blur, blur), 0)

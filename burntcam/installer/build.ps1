@@ -40,6 +40,7 @@ Write-Host "== app files"
 Copy-Item (Join-Path $Src '*.py') $Out
 Copy-Item (Join-Path $Src 'burntcam.ico') $Out
 Copy-Item (Join-Path $Src 'README.md') $Out
+Copy-Item (Join-Path $Src 'textures') $Out -Recurse
 New-Item -ItemType Directory -Force -Path (Join-Path $Out 'models') | Out-Null
 Invoke-WebRequest 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task' `
     -OutFile (Join-Path $Out 'models\face_landmarker.task') -UseBasicParsing

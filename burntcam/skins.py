@@ -17,76 +17,91 @@ eyes and mouth but not your eyebrows), "default_mask" (features / full / off),
 "head_only" (a floating peanut: both lobes turn with your head, no limbs),
 "hat" (none / propeller / cowboy, cycled with T), "cracks" (dry cracks in the
 shell), "eye_scale" / "mouth_scale" / "eye_spread" (blow up and spread the
-features on the shell), "lip_tint" + "lip_amount" (tint your lips).
+features on the shell), "lip_tint" + "lip_amount" (tint your lips),
+"face_opacity" (how solid the face is outside the eyes and mouth),
+"shell_texture" (a photo in the textures folder wrapped around the shell) with
+"shell_tint", "shell_bump" and "shell_repeat".
 "shape": "lizard" switches to the cartoon lizard model, which has its own
 body (see mapLizard in renderer.py) and uses "body_yaw".
 """
 
 SKINS = [
     {
-        # TheBurntPeanut's look: a single roasted peanut in its shell that
-        # floats where your head is, with your real eyes and mouth blown up
-        # on the front (no brows), pink lips, a dry cracked tan shell and a
-        # propeller beanie. Press T to swap the hat.
+        # TheBurntPeanut's avatar: a tall peanut in its shell, with a real
+        # waist, that floats where your head is. Your whole face shows on the
+        # top lobe, see-through except for the eyes and mouth, so the shell
+        # shows through it; the eyebrows are cut out and the lips are pink.
+        # The shell is a photo of a peanut shell wrapped around it. It wears a
+        # rainbow propeller beanie; press T for the black cowboy hat.
         "name": "Burnt Peanut",
         "head_only": True,                     # both lobes turn with your head; no body or limbs
         "hat": "propeller",
-        "head": (0.0, 0.62, 0.0, 0.66),        # upper lobe: center xyz, radius
-        "head_scale": (1.00, 1.06, 0.92),      # ellipsoid stretch
-        "body": (0.0, -0.30, 0.0, 0.64),       # lower lobe
-        "body_scale": (1.02, 1.00, 0.92),
-        "blend": 0.42,                         # a gentle waist, not a pinched one
-        "bumps": 0.008,                        # surface lumpiness
-        "base": (0.80, 0.60, 0.36),            # tan roasted shell
-        "dark": (0.30, 0.16, 0.07),            # over-roasted patches and cracks
-        "line": (0.50, 0.33, 0.17),            # shell netting color
-        "burn": 0.45,                          # 0 = raw, 1 = charcoal
-        "net": 0.5,                            # netting strength
-        "cracks": 0.8,                         # dry cracks in the shell
-        "gloss": 0.12,                         # matte
+        "default_mask": "full",
+        "head": (0.0, 0.70, 0.0, 0.47),        # top lobe: center xyz, radius
+        "head_scale": (1.00, 1.18, 0.95),
+        "body": (0.0, -0.52, 0.0, 0.58),       # bottom lobe, a bit fatter
+        "body_scale": (1.00, 1.30, 0.95),
+        "blend": 0.22,                         # the waist
+        "bumps": 0.004,
+        "shell_texture": "peanut_shell.png",   # in the textures folder
+        "shell_tint": (1.0, 1.0, 1.0),
+        "shell_bump": 1.2,                     # relief from the photo
+        "shell_repeat": (5.0, 2.8),            # repeats around / along the peanut
+        "base": (0.84, 0.66, 0.40),            # used if the photo can't be loaded
+        "dark": (0.42, 0.26, 0.12),
+        "line": (0.50, 0.33, 0.17),
+        "burn": 0.0,
+        "net": 0.0,
+        "gloss": 0.15,
         "limbs": False,
         "limb_color": (0.07, 0.06, 0.06),
         "glove_color": (0.95, 0.95, 0.92),
-        "face_size": 1.90,                     # width of the face decal
-        "face_y": 0.22,                        # eyes on the top lobe, mouth on the bottom one
-        "no_brows": True,                      # eyes and mouth only, like the real peanut
-        "eye_scale": 1.65,                     # blow up the eyes and the mouth
-        "mouth_scale": 1.45,
-        "eye_spread": 0.025,
-        "lip_tint": (0.95, 0.42, 0.58),        # pink lips
-        "lip_amount": 0.6,
-        "face_tint": (0.92, 0.78, 0.62),       # warms your skin toward the shell
-        "tint_amount": 0.30,
+        "face_size": 1.05,                     # the face is small on the top lobe
+        "face_y": 0.78,
+        "face_opacity": 0.5,                   # shell shows through, except eyes and mouth
+        "no_brows": True,
+        "eye_scale": 1.15,
+        "mouth_scale": 1.25,
+        "eye_spread": 0.0,
+        "lip_tint": (0.95, 0.30, 0.55),        # pink lips
+        "lip_amount": 0.75,
+        "face_tint": (0.95, 0.82, 0.60),       # warms your skin toward the shell
+        "tint_amount": 0.35,
     },
     {
-        # The same floating peanut, gold.
+        # The same peanut in gold.
         "name": "Golden Peanut",
         "head_only": True,
         "hat": "none",
-        "head": (0.0, 0.62, 0.0, 0.66),
-        "head_scale": (1.00, 1.06, 0.92),
-        "body": (0.0, -0.30, 0.0, 0.64),
-        "body_scale": (1.02, 1.00, 0.92),
-        "blend": 0.42,
-        "bumps": 0.008,
+        "default_mask": "full",
+        "head": (0.0, 0.70, 0.0, 0.47),
+        "head_scale": (1.00, 1.18, 0.95),
+        "body": (0.0, -0.52, 0.0, 0.58),
+        "body_scale": (1.00, 1.30, 0.95),
+        "blend": 0.22,
+        "bumps": 0.004,
+        "shell_texture": "peanut_shell.png",
+        "shell_tint": (1.20, 1.05, 0.62),
+        "shell_bump": 1.2,
+        "shell_repeat": (5.0, 2.8),
         "base": (0.92, 0.74, 0.40),
         "dark": (0.60, 0.42, 0.16),
         "line": (0.66, 0.50, 0.24),
-        "burn": 0.20,
-        "net": 0.55,
-        "cracks": 0.5,
-        "gloss": 0.5,
+        "burn": 0.0,
+        "net": 0.0,
+        "gloss": 0.6,
         "limbs": False,
         "limb_color": (0.07, 0.06, 0.06),
         "glove_color": (0.95, 0.95, 0.92),
-        "face_size": 1.90,
-        "face_y": 0.22,
+        "face_size": 1.05,
+        "face_y": 0.78,
+        "face_opacity": 0.5,
         "no_brows": True,
-        "eye_scale": 1.65,
-        "mouth_scale": 1.45,
-        "eye_spread": 0.025,
-        "lip_tint": (0.95, 0.42, 0.58),
-        "lip_amount": 0.6,
+        "eye_scale": 1.15,
+        "mouth_scale": 1.25,
+        "eye_spread": 0.0,
+        "lip_tint": (0.95, 0.30, 0.55),
+        "lip_amount": 0.75,
         "face_tint": (1.0, 0.88, 0.72),
         "tint_amount": 0.25,
     },

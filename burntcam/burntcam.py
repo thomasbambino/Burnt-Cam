@@ -329,6 +329,11 @@ class Pose:
         }
 
 
+def shell_texture_path(skin: dict) -> str | None:
+    name = skin.get("shell_texture")
+    return os.path.join(HERE, "textures", name) if name else None
+
+
 def skin_uniforms(skin: dict) -> dict:
     return {
         "uHead": skin["head"],
@@ -363,6 +368,10 @@ def skin_uniforms(skin: dict) -> dict:
         "uEyeScale": skin.get("eye_scale", 1.0),
         "uMouthScale": skin.get("mouth_scale", 1.0),
         "uEyeSpread": skin.get("eye_spread", 0.0),
+        "uFaceOpacity": skin.get("face_opacity", 1.0),
+        "uShellTint": skin.get("shell_tint", (1.0, 1.0, 1.0)),
+        "uShellBump": skin.get("shell_bump", 0.0),
+        "uShellRepeat": skin.get("shell_repeat", (3.0, 1.5)),
     }
 
 
@@ -406,7 +415,7 @@ def framing(skin: dict, view: str, zoom: float, hat: str = "none") -> tuple[floa
     head_r *= skin["head_scale"][1]
     top = skin.get("top", head_y + head_r)
     if hat == "propeller":
-        top = max(top, head_y + head_r + 0.24)
+        top = max(top, head_y + head_r + 0.26)
     elif hat == "cowboy":
         top = max(top, head_y + head_r * 0.72 + 0.56)
     if skin.get("head_only"):
@@ -418,7 +427,7 @@ def framing(skin: dict, view: str, zoom: float, hat: str = "none") -> tuple[floa
         k = {"full": 0.0, "waist": 0.35, "chest": 0.65, "face": 1.0}[view]
         zoom *= 1.0 + 0.35 * k
         half = (top - bottom) / 2.0 / zoom
-        center = (top + bottom) / 2.0 * (1.0 - k) + (skin["face_y"] + 0.25) * k
+        center = (top + bottom) / 2.0 * (1.0 - k) + (head_y + 0.05) * k
         return center, 5.2 / (2.75 * half), half
     bottom, margin = {
         "full": (GROUND - 0.18, 0.22),
@@ -804,14 +813,15 @@ def main(argv=None):
             if face is not None:
                 last_seen = t
                 if state["mask"] == "full":
-                    mask = face.mask_full
+                    mask = face.mask_full_no_brows if skin.get("no_brows") else face.mask_full
                 elif skin.get("mouth_only"):
                     mask = face.mask_mouth
                 elif skin.get("no_brows"):
                     mask = face.mask_no_brows
                 else:
                     mask = face.mask_features
-                renderer.update_face(face, mask, tracker.topology.triangles, face.mask_lips)
+                renderer.update_face(face, mask, tracker.topology.triangles, face.mask_lips,
+                                     face.mask_no_brows)
                 features = {"uEyeL": face.eyes_tex[0], "uEyeR": face.eyes_tex[1], "uMouth": face.mouth_tex}
             # Fade the face in/out instead of popping when tracking is lost.
             target = 1.0 if t - last_seen < 0.25 else 0.0
@@ -830,6 +840,7 @@ def main(argv=None):
             cam_y, zoom, half = framing(skin, state["view"], state["zoom"], hat)
             u = skin_uniforms(skin)
             u["uHat"] = HATS.index(hat)
+            renderer.set_shell_texture(shell_texture_path(skin))
             u.update(features)
             u.update(pose.uniforms(t, skin.get("body_follow", 0.3), skin.get("head_follow", 1.0)))
             # Moving around your frame moves the character by the same share of

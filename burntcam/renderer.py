@@ -10,6 +10,7 @@ Pass 3 - "resolve": downsamples to the output size (anti-aliasing).
 
 from __future__ import annotations
 
+import cv2
 import numpy as np
 import moderngl
 
@@ -125,6 +126,13 @@ uniform vec2  uMouth;
 uniform float uEyeScale;    // magnify the eyes / mouth on the character (1 = as they are)
 uniform float uMouthScale;
 uniform float uEyeSpread;   // push the eyes apart (face-texture units)
+uniform sampler2D uFeatMask; // eyes + mouth: these stay opaque when the rest of the face is see-through
+uniform float uFaceOpacity; // how solid the face is outside the eyes and mouth (1 = solid)
+uniform sampler2D uShellTex; // photo of a peanut shell, wrapped around the head (optional)
+uniform int   uShellOn;
+uniform vec3  uShellTint;
+uniform float uShellBump;   // fake relief from the shell photo
+uniform vec2  uShellRepeat; // times the photo repeats around / along the peanut
 
 const float GROUND = -1.66;
 
@@ -685,10 +693,10 @@ vec3 map(vec3 p) {
         // Propeller beanie: a cap over the top of the head, a stick, a red hub
         // and two spinning blades.
         vec3 hc = uHead.xyz;
-        float capY = hc.y + rh.y * 0.58;
+        float capY = hc.y + rh.y * 0.44;
         float cap = max(sdEllipsoid(ph - hc, rh + 0.035), capY - ph.y);
-        float ringR = sqrt(max(0.0, 1.0 - 0.58 * 0.58));
-        float brim = length(vec2(length((ph - hc).xz) - ringR * rh.x - 0.01, ph.y - capY)) - 0.04;
+        float ringR = sqrt(max(0.0, 1.0 - 0.44 * 0.44));
+        float brim = length(vec2(length((ph - hc).xz) - ringR * rh.x - 0.015, ph.y - capY)) - 0.05;
         float hat = min(cap, brim);
         if (hat < res.x) res = vec3(hat, 3.0, 0.0);
         float topY = hc.y + rh.y;
@@ -710,8 +718,8 @@ vec3 map(vec3 p) {
         q.y -= 0.30 * q.x * q.x;
         float brim = sdEllipsoid(q, vec3(rh.x * 1.65, 0.035, rh.z * 1.35));
         vec3 c = ph - vec3(hc.x, brimY + 0.22, hc.z);
-        float crown = sdEllipsoid(c, vec3(rh.x * 0.72, 0.30, rh.z * 0.70));
-        crown = smax(crown, -sdEllipsoid(c - vec3(0.0, 0.34, 0.0), vec3(0.12, 0.16, 0.9)), 0.05);
+        float crown = sdEllipsoid(c, vec3(rh.x * 0.80, 0.36, rh.z * 0.78));
+        crown = smax(crown, -sdEllipsoid(c - vec3(0.0, 0.40, 0.0), vec3(0.12, 0.16, 0.9)), 0.05);
         float hat = min(brim, crown);
         if (hat < res.x) res = vec3(hat, 6.0, 0.0);
     }
@@ -788,11 +796,24 @@ float voronoiEdge(vec3 x) {
     }
     return sqrt(f2) - sqrt(f1);
 }
+// Cylindrical wrap of the shell photo: ridges run along the peanut.
+vec2 shellUV(vec3 q) {
+    return vec2(atan(q.x, q.z) / 6.2831853 * uShellRepeat.x, q.y * uShellRepeat.y);
+}
+float shellLum(vec2 uv) { return dot(texture(uShellTex, uv).rgb, vec3(0.3, 0.59, 0.11)); }
+
 vec3 shell(vec3 q) {
     float burn = smoothstep(0.38, 0.72, fbm(q * 2.2 + 3.1)) * uBurn;
     float speck = smoothstep(0.6, 0.78, fbm(q * 9.0)) * uBurn;
-    vec3 c = mix(uBase, uDark, clamp(burn + 0.6 * speck, 0.0, 1.0));
-    c *= 0.88 + 0.24 * fbm(q * 6.0);
+    vec3 c;
+    if (uShellOn == 1) {
+        c = texture(uShellTex, shellUV(q)).rgb * uShellTint;
+        c *= 0.90 + 0.20 * fbm(q * 16.0);          // fine grain the photo is too soft to carry
+        c = mix(c, uDark, clamp(burn + 0.6 * speck, 0.0, 1.0));
+    } else {
+        c = mix(uBase, uDark, clamp(burn + 0.6 * speck, 0.0, 1.0));
+        c *= 0.88 + 0.24 * fbm(q * 6.0);
+    }
     if (uCrack > 0.0) {
         // Dry, dark cracks: thin cell edges, broken up so they don't read as a grid.
         float e = voronoiEdge(q * vec3(3.2, 2.4, 3.2) + 0.35 * fbm(q * 3.0));
@@ -1140,6 +1161,21 @@ void main() {
             vec3 pos = ro + rd * t;
             vec3 n = calcNormal(pos);
             vec3 ph = toHead(pos);
+            if (uShellOn == 1 && m.y < 0.5 && uShellBump > 0.0) {
+                // Tilt the normal by the brightness slope of the shell photo so
+                // the pits look sunken.
+                vec3 q = mix(toBody(pos), ph, m.z);
+                vec2 uv = shellUV(q);
+                float ang = atan(q.x, q.z);
+                vec2 e = vec2(0.003, 0.0);
+                float l0 = shellLum(uv);
+                float du = (shellLum(uv + e.xy) - l0) / e.x;
+                float dv = (shellLum(uv + e.yx) - l0) / e.x;
+                mat3 headToWorld = transpose(uHeadInv);
+                vec3 tu = headToWorld * vec3(cos(ang), 0.0, -sin(ang));
+                vec3 tv = headToWorld * vec3(0.0, 1.0, 0.0);
+                n = normalize(n - uShellBump * 0.02 * (du * tu + dv * tv));
+            }
             vec3 alb;
             float gloss = uGloss;
             float faceM = 0.0;
@@ -1161,24 +1197,24 @@ void main() {
             } else if (m.y < 2.5) {
                 alb = uGloveCol; gloss = 0.3;
             } else if (m.y < 3.5) {
-                // Beanie panels: purple, yellow and orange around the cap.
+                // Rainbow beanie: orange, yellow, green and purple panels.
                 vec3 hp = ph - uHead.xyz;
-                float ang = atan(hp.x, hp.z) / 6.2831853 + 0.5 + 1.0 / 12.0;
-                int panel = int(floor(fract(ang) * 6.0)) % 3;
-                alb = panel == 0 ? vec3(0.45, 0.16, 0.65) : panel == 1 ? vec3(0.98, 0.80, 0.15)
-                    : vec3(0.95, 0.40, 0.10);
+                float ang = atan(hp.x, hp.z) / 6.2831853 + 0.5 + 0.125;
+                int panel = int(floor(fract(ang) * 8.0)) % 4;
+                alb = panel == 0 ? vec3(0.95, 0.40, 0.10) : panel == 1 ? vec3(0.98, 0.80, 0.15)
+                    : panel == 2 ? vec3(0.20, 0.62, 0.30) : vec3(0.45, 0.16, 0.65);
                 gloss = 0.15;
             } else if (m.y < 4.5) {
                 alb = vec3(0.04, 0.04, 0.05); gloss = 0.6;
             } else if (m.y < 5.5) {
                 alb = vec3(0.85, 0.10, 0.10); gloss = 0.8;
             } else {
-                // Cowboy hat: tan felt with a dark band around the crown.
+                // Cowboy hat: black felt with a slightly lighter band around the crown.
                 float hy = ph.y - uHead.y - uHead.w * uHeadScale.y * 0.72;
                 float band = smoothstep(0.03, 0.05, hy) * (1.0 - smoothstep(0.11, 0.13, hy))
                            * step(0.05, length((ph - uHead.xyz).xz) - 0.3);
-                alb = mix(vec3(0.50, 0.33, 0.16), vec3(0.16, 0.09, 0.05), band);
-                gloss = 0.12;
+                alb = mix(vec3(0.05, 0.05, 0.06), vec3(0.16, 0.14, 0.13), band);
+                gloss = 0.2;
             }
             if (m.y < 0.5) {
                 vec3 nh = uHeadInv * n;
@@ -1189,6 +1225,7 @@ void main() {
                     fuv = magnify(fuv, uEyeR, 0.15, uEyeScale, vec2(uEyeSpread, 0.0));
                     fuv = magnify(fuv, uMouth, 0.19, uMouthScale, vec2(0.0));
                     faceM = texture(uMask, fuv).r * smoothstep(0.1, 0.5, nh.z) * m.z * uFaceAlpha;
+                    faceM *= mix(uFaceOpacity, 1.0, texture(uFeatMask, fuv).r);
                     faceC = texture(uFace, fuv).rgb * mix(vec3(1.0), uTint, uTintAmt);
                     if (uLipAmt > 0.0) {
                         float lip = texture(uLipMask, fuv).r * uLipAmt;
@@ -1252,6 +1289,12 @@ class Renderer:
         self.lip_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
         self.lip_tex.repeat_x = self.lip_tex.repeat_y = False
         self.lip_tex.write(np.zeros((MASK_TEX_SIZE, MASK_TEX_SIZE), np.uint8).tobytes())
+        self.feat_tex = ctx.texture((MASK_TEX_SIZE, MASK_TEX_SIZE), 1)
+        self.feat_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
+        self.feat_tex.repeat_x = self.feat_tex.repeat_y = False
+        self.feat_tex.write(np.zeros((MASK_TEX_SIZE, MASK_TEX_SIZE), np.uint8).tobytes())
+        self.shell_textures: dict[str, moderngl.Texture] = {}
+        self.shell_tex = None
 
         self.unwrap_prog = ctx.program(vertex_shader=UNWRAP_VS, fragment_shader=UNWRAP_FS)
         self.unwrap_vbo = None
@@ -1270,6 +1313,8 @@ class Renderer:
         self.scene_prog["uCam"].value = 2
         self.scene_prog["uBgTex"].value = 4
         self.scene_prog["uLipMask"].value = 5
+        self.scene_prog["uFeatMask"].value = 6
+        self.scene_prog["uShellTex"].value = 7
         self.bg_tex = None
         self.bg_aspect = 16 / 9
         self.unwrap_prog["uCam"].value = 2
@@ -1315,8 +1360,26 @@ class Renderer:
             self.bg_aspect = w / h
         self.bg_tex.write(np.ascontiguousarray(image_bgr).tobytes())
 
+    def set_shell_texture(self, path: str | None):
+        """Wrap a photo of a shell around the character (None = procedural shell)."""
+        if path is None:
+            self.shell_tex = None
+            return
+        tex = self.shell_textures.get(path)
+        if tex is None:
+            img = cv2.imread(path)
+            if img is None:
+                raise RuntimeError(f"Could not read shell texture {path}")
+            rgb = np.ascontiguousarray(img[:, :, ::-1])
+            tex = self.ctx.texture((rgb.shape[1], rgb.shape[0]), 3, rgb.tobytes(), alignment=1)
+            tex.build_mipmaps()
+            tex.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
+            tex.repeat_x = tex.repeat_y = True
+            self.shell_textures[path] = tex
+        self.shell_tex = tex
+
     def update_face(self, face: FaceState, mask: np.ndarray, triangles: np.ndarray,
-                    lip_mask: np.ndarray | None = None):
+                    lip_mask: np.ndarray | None = None, feat_mask: np.ndarray | None = None):
         verts = np.hstack([face.tex_uv, face.img_uv]).astype("f4")
         if self.unwrap_vao is None:
             self.unwrap_vbo = self.ctx.buffer(reserve=verts.nbytes, dynamic=True)
@@ -1332,6 +1395,8 @@ class Renderer:
         self.mask_tex.write(np.ascontiguousarray(mask).tobytes())
         if lip_mask is not None:
             self.lip_tex.write(np.ascontiguousarray(lip_mask).tobytes())
+        if feat_mask is not None:
+            self.feat_tex.write(np.ascontiguousarray(feat_mask).tobytes())
 
     # ----------------------------------------------------------------- render
     def render(self, uniforms: dict) -> np.ndarray:
@@ -1341,6 +1406,7 @@ class Renderer:
         uniforms["uRes"] = self.ss_size
         uniforms["uCamAspect"] = self.cam_aspect
         uniforms["uBgAspect"] = self.bg_aspect
+        uniforms["uShellOn"] = int(self.shell_tex is not None)
         for name, value in uniforms.items():
             if name in prog:
                 prog[name].value = value
@@ -1352,6 +1418,9 @@ class Renderer:
         if self.bg_tex is not None:
             self.bg_tex.use(4)
         self.lip_tex.use(5)
+        self.feat_tex.use(6)
+        if self.shell_tex is not None:
+            self.shell_tex.use(7)
         self.scene_fbo.use()
         self.scene_vao.render(moderngl.TRIANGLES, vertices=3)
 
