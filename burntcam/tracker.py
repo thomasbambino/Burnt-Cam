@@ -149,6 +149,9 @@ class FaceState:
     mask_features: np.ndarray  # eyes + brows + mouth mask in tex space
     mask_no_brows: np.ndarray  # eyes + mouth, without the brows
     mask_mouth: np.ndarray     # mouth only
+    mask_lips: np.ndarray      # just the lips (for tinting them)
+    eyes_tex: tuple            # (screen-left eye, screen-right eye) centers in tex space
+    mouth_tex: tuple           # mouth center in tex space
 
 
 def head_frame(p: np.ndarray) -> np.ndarray:
@@ -287,6 +290,10 @@ class FaceTracker:
             ),
             mask_no_brows=self._mask(tex, [], [topo.left_eye, topo.right_eye, topo.lips]),
             mask_mouth=self._mask(tex, [], [topo.lips], pad=0.25),
+            mask_lips=self._mask(tex, [], [topo.lips], pad=0.0),
+            eyes_tex=tuple(sorted(tuple(map(float, tex[idx].mean(axis=0)))
+                                  for idx in (topo.left_eye, topo.right_eye))),
+            mouth_tex=tuple(map(float, tex[topo.lips].mean(axis=0))),
         )
 
     def _blink(self, tex) -> tuple:

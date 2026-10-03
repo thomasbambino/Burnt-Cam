@@ -87,6 +87,9 @@ uniform float uBumps;
 uniform float uStretch;
 uniform int   uLimbs;
 uniform float uLimbR;
+uniform int   uHeadOnly;    // 1 = both lobes are the head (a floating peanut); no body, no limbs
+uniform int   uHat;         // 0 none, 1 propeller beanie, 2 cowboy hat
+uniform float uCrack;       // dark dry cracks in the shell
 uniform int   uShape;       // 0 = two-lobe character (peanut, egg...), 1 = lizard, 2 = dark mage, 3 = duelist, 4 = sea sponge
 uniform vec2  uBlink;       // lizard: eyelid closure, x = screen-left eye, y = screen-right eye
 uniform float uJaw;         // lizard: mouth opening 0..1
@@ -113,6 +116,15 @@ uniform float uFaceSize;
 uniform float uFaceY;
 uniform vec3  uTint;
 uniform float uTintAmt;
+uniform sampler2D uLipMask;
+uniform vec3  uLipTint;
+uniform float uLipAmt;
+uniform vec2  uEyeL;        // feature centers in face-texture space
+uniform vec2  uEyeR;
+uniform vec2  uMouth;
+uniform float uEyeScale;    // magnify the eyes / mouth on the character (1 = as they are)
+uniform float uMouthScale;
+uniform float uEyeSpread;   // push the eyes apart (face-texture units)
 
 const float GROUND = -1.66;
 
@@ -170,6 +182,17 @@ vec3 toBody(vec3 p) { return uBodyInv * (p - uOffset - uPivot) + uPivot; }
 vec3 toHead(vec3 p) { return uHeadInv * (p - uOffset - uNeckW) + uNeck; }
 
 float smax(float a, float b, float k) { return -smin(-a, -b, k); }
+
+// Shows the face texture around c enlarged s times (within radius r), with
+// the enlarged feature moved by `shift`. Outside r nothing changes.
+vec2 magnify(vec2 uv, vec2 c, float r, float s, vec2 shift) {
+    vec2 cs = c + shift;
+    vec2 d = uv - cs;
+    float l = length(d) / r;
+    if (l >= 1.0 || (s <= 1.0 && shift == vec2(0.0))) return uv;
+    float w = 1.0 - smoothstep(0.0, 1.0, l);
+    return cs + d * mix(1.0, 1.0 / s, w) - shift * w;
+}
 
 float bumps(vec3 p) {
     return sin(p.x * 17.0 + sin(p.y * 7.0)) * sin(p.y * 19.0 + 1.3) * sin(p.z * 16.0 + sin(p.x * 5.0));
@@ -648,16 +671,52 @@ vec3 map(vec3 p) {
     if (uShape == 3) return mapDuelist(p);
     if (uShape == 4) return mapSponge(p);
     vec3 ph = toHead(p);
-    vec3 pb = toBody(p);
+    // A floating peanut: the lower lobe turns with the head too.
+    vec3 pb = uHeadOnly == 1 ? ph : toBody(p);
     vec3 rh = uHead.w * uHeadScale * vec3(1.0 - 0.35 * uStretch, 1.0 + uStretch, 1.0 - 0.35 * uStretch);
     float dh = sdEllipsoid(ph - uHead.xyz, rh);
     float db = sdEllipsoid(pb - uBody.xyz, uBody.w * uBodyScale);
     float d = smin(dh, db, uBlend);
-    float hw = clamp(0.5 + (db - dh) * 4.0, 0.0, 1.0);
+    float hw = uHeadOnly == 1 ? 1.0 : clamp(0.5 + (db - dh) * 4.0, 0.0, 1.0);
     if (uBumps > 0.0) d += uBumps * mix(bumps(pb), bumps(ph), hw);
     vec3 res = vec3(d, 0.0, hw);
 
-    if (uLimbs == 1) {
+    if (uHat == 1) {
+        // Propeller beanie: a cap over the top of the head, a stick, a red hub
+        // and two spinning blades.
+        vec3 hc = uHead.xyz;
+        float capY = hc.y + rh.y * 0.58;
+        float cap = max(sdEllipsoid(ph - hc, rh + 0.035), capY - ph.y);
+        float ringR = sqrt(max(0.0, 1.0 - 0.58 * 0.58));
+        float brim = length(vec2(length((ph - hc).xz) - ringR * rh.x - 0.01, ph.y - capY)) - 0.04;
+        float hat = min(cap, brim);
+        if (hat < res.x) res = vec3(hat, 3.0, 0.0);
+        float topY = hc.y + rh.y;
+        float stick = sdCapsule(ph, vec3(hc.x, topY, hc.z), vec3(hc.x, topY + 0.15, hc.z), 0.025);
+        float hub = length(ph - vec3(hc.x, topY + 0.17, hc.z)) - 0.055;
+        float a = uTime * 7.0;
+        vec3 pr = ph - vec3(hc.x, topY + 0.17, hc.z);
+        pr.xz = mat2(cos(a), -sin(a), sin(a), cos(a)) * pr.xz;
+        pr.y -= 0.03 * sin(pr.x * 6.0);                 // a little twist in the blade
+        float blade = sdBox(pr, vec3(0.44, 0.012, 0.05)) - 0.01;
+        float black = min(stick, blade);
+        if (black < res.x) res = vec3(black, 4.0, 0.0);
+        if (hub < res.x) res = vec3(hub, 5.0, 0.0);
+    } else if (uHat == 2) {
+        // Cowboy hat: a dented crown and a wide brim that curls up at the sides.
+        vec3 hc = uHead.xyz;
+        float brimY = hc.y + rh.y * 0.72;
+        vec3 q = ph - vec3(hc.x, brimY, hc.z);
+        q.y -= 0.30 * q.x * q.x;
+        float brim = sdEllipsoid(q, vec3(rh.x * 1.65, 0.035, rh.z * 1.35));
+        vec3 c = ph - vec3(hc.x, brimY + 0.22, hc.z);
+        float crown = sdEllipsoid(c, vec3(rh.x * 0.72, 0.30, rh.z * 0.70));
+        crown = smax(crown, -sdEllipsoid(c - vec3(0.0, 0.34, 0.0), vec3(0.12, 0.16, 0.9)), 0.05);
+        float hat = min(brim, crown);
+        if (hat < res.x) res = vec3(hat, 6.0, 0.0);
+    }
+
+    if (uLimbs == 1 && uHeadOnly == 0) {
         vec3 q = pb;
         float side = sign(q.x);
         q.x = abs(q.x);
@@ -734,6 +793,12 @@ vec3 shell(vec3 q) {
     float speck = smoothstep(0.6, 0.78, fbm(q * 9.0)) * uBurn;
     vec3 c = mix(uBase, uDark, clamp(burn + 0.6 * speck, 0.0, 1.0));
     c *= 0.88 + 0.24 * fbm(q * 6.0);
+    if (uCrack > 0.0) {
+        // Dry, dark cracks: thin cell edges, broken up so they don't read as a grid.
+        float e = voronoiEdge(q * vec3(3.2, 2.4, 3.2) + 0.35 * fbm(q * 3.0));
+        float crack = (1.0 - smoothstep(0.0, 0.025, e)) * smoothstep(0.35, 0.6, fbm(q * 5.0 + 7.0));
+        c = mix(c, uDark * 0.6, crack * uCrack);
+    }
     if (uNet > 0.0) {
         float e = voronoiEdge(q * vec3(9.0, 6.0, 9.0) * uNetScale + 0.15 * fbm(q * 4.0));
         float net = (1.0 - smoothstep(0.02, 0.09, e)) * uNet;
@@ -1093,15 +1158,43 @@ void main() {
                 alb = shell(mix(toBody(pos), ph, m.z));
             } else if (m.y < 1.5) {
                 alb = uLimbCol; gloss = 0.5;
-            } else {
+            } else if (m.y < 2.5) {
                 alb = uGloveCol; gloss = 0.3;
+            } else if (m.y < 3.5) {
+                // Beanie panels: purple, yellow and orange around the cap.
+                vec3 hp = ph - uHead.xyz;
+                float ang = atan(hp.x, hp.z) / 6.2831853 + 0.5 + 1.0 / 12.0;
+                int panel = int(floor(fract(ang) * 6.0)) % 3;
+                alb = panel == 0 ? vec3(0.45, 0.16, 0.65) : panel == 1 ? vec3(0.98, 0.80, 0.15)
+                    : vec3(0.95, 0.40, 0.10);
+                gloss = 0.15;
+            } else if (m.y < 4.5) {
+                alb = vec3(0.04, 0.04, 0.05); gloss = 0.6;
+            } else if (m.y < 5.5) {
+                alb = vec3(0.85, 0.10, 0.10); gloss = 0.8;
+            } else {
+                // Cowboy hat: tan felt with a dark band around the crown.
+                float hy = ph.y - uHead.y - uHead.w * uHeadScale.y * 0.72;
+                float band = smoothstep(0.03, 0.05, hy) * (1.0 - smoothstep(0.11, 0.13, hy))
+                           * step(0.05, length((ph - uHead.xyz).xz) - 0.3);
+                alb = mix(vec3(0.50, 0.33, 0.16), vec3(0.16, 0.09, 0.05), band);
+                gloss = 0.12;
             }
             if (m.y < 0.5) {
                 vec3 nh = uHeadInv * n;
                 vec2 fuv = vec2(0.5 + (ph.x - uHead.x) / uFaceSize, 0.5 - (ph.y - uFaceY) / uFaceSize);
                 if (all(greaterThan(fuv, vec2(0.0))) && all(lessThan(fuv, vec2(1.0)))) {
+                    // Blow up the eyes and the mouth on the shell (the streamer look).
+                    fuv = magnify(fuv, uEyeL, 0.15, uEyeScale, vec2(-uEyeSpread, 0.0));
+                    fuv = magnify(fuv, uEyeR, 0.15, uEyeScale, vec2(uEyeSpread, 0.0));
+                    fuv = magnify(fuv, uMouth, 0.19, uMouthScale, vec2(0.0));
                     faceM = texture(uMask, fuv).r * smoothstep(0.1, 0.5, nh.z) * m.z * uFaceAlpha;
                     faceC = texture(uFace, fuv).rgb * mix(vec3(1.0), uTint, uTintAmt);
+                    if (uLipAmt > 0.0) {
+                        float lip = texture(uLipMask, fuv).r * uLipAmt;
+                        float lum = dot(faceC, vec3(0.3, 0.59, 0.11));
+                        faceC = mix(faceC, uLipTint * (0.3 + 1.1 * lum), lip);
+                    }
                 }
             }
 
@@ -1155,6 +1248,10 @@ class Renderer:
         self.mask_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
         self.mask_tex.repeat_x = self.mask_tex.repeat_y = False
         self.mask_tex.write(np.zeros((MASK_TEX_SIZE, MASK_TEX_SIZE), np.uint8).tobytes())
+        self.lip_tex = ctx.texture((MASK_TEX_SIZE, MASK_TEX_SIZE), 1)
+        self.lip_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
+        self.lip_tex.repeat_x = self.lip_tex.repeat_y = False
+        self.lip_tex.write(np.zeros((MASK_TEX_SIZE, MASK_TEX_SIZE), np.uint8).tobytes())
 
         self.unwrap_prog = ctx.program(vertex_shader=UNWRAP_VS, fragment_shader=UNWRAP_FS)
         self.unwrap_vbo = None
@@ -1172,6 +1269,7 @@ class Renderer:
         self.scene_prog["uMask"].value = 1
         self.scene_prog["uCam"].value = 2
         self.scene_prog["uBgTex"].value = 4
+        self.scene_prog["uLipMask"].value = 5
         self.bg_tex = None
         self.bg_aspect = 16 / 9
         self.unwrap_prog["uCam"].value = 2
@@ -1217,7 +1315,8 @@ class Renderer:
             self.bg_aspect = w / h
         self.bg_tex.write(np.ascontiguousarray(image_bgr).tobytes())
 
-    def update_face(self, face: FaceState, mask: np.ndarray, triangles: np.ndarray):
+    def update_face(self, face: FaceState, mask: np.ndarray, triangles: np.ndarray,
+                    lip_mask: np.ndarray | None = None):
         verts = np.hstack([face.tex_uv, face.img_uv]).astype("f4")
         if self.unwrap_vao is None:
             self.unwrap_vbo = self.ctx.buffer(reserve=verts.nbytes, dynamic=True)
@@ -1231,6 +1330,8 @@ class Renderer:
         self.cam_tex.use(2)
         self.unwrap_vao.render(moderngl.TRIANGLES)
         self.mask_tex.write(np.ascontiguousarray(mask).tobytes())
+        if lip_mask is not None:
+            self.lip_tex.write(np.ascontiguousarray(lip_mask).tobytes())
 
     # ----------------------------------------------------------------- render
     def render(self, uniforms: dict) -> np.ndarray:
@@ -1250,6 +1351,7 @@ class Renderer:
             self.cam_tex.use(2)
         if self.bg_tex is not None:
             self.bg_tex.use(4)
+        self.lip_tex.use(5)
         self.scene_fbo.use()
         self.scene_vao.render(moderngl.TRIANGLES, vertices=3)
 

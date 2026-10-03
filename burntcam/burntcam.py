@@ -58,6 +58,7 @@ BACKGROUND_DIR = os.path.join(DATA_DIR, "backgrounds")
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".gif"}
 MASKS = ["features", "full", "off"]
+HATS = ["none", "propeller", "cowboy"]
 VIEWS = {"full": "Full body", "waist": "Waist up", "chest": "Chest up", "face": "Close-up"}
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 GROUND = -1.66
@@ -338,6 +339,8 @@ def skin_uniforms(skin: dict) -> dict:
         "uBumps": skin["bumps"],
         "uLimbs": int(skin["limbs"]),
         "uLimbR": skin.get("limb_radius", 0.045),
+        "uHeadOnly": int(bool(skin.get("head_only"))),
+        "uCrack": skin.get("cracks", 0.0),
         "uShape": {"lizard": 1, "mage": 2, "duelist": 3, "sponge": 4}.get(skin.get("shape"), 0),
         "uBodyYaw": float(np.radians(skin.get("body_yaw", 0.0))),
         "uNetScale": skin.get("net_scale", 1.0),
@@ -355,6 +358,11 @@ def skin_uniforms(skin: dict) -> dict:
         "uFaceY": skin["face_y"],
         "uTint": skin["face_tint"],
         "uTintAmt": skin["tint_amount"],
+        "uLipTint": skin.get("lip_tint", (1.0, 1.0, 1.0)),
+        "uLipAmt": skin.get("lip_amount", 0.0),
+        "uEyeScale": skin.get("eye_scale", 1.0),
+        "uMouthScale": skin.get("mouth_scale", 1.0),
+        "uEyeSpread": skin.get("eye_spread", 0.0),
     }
 
 
@@ -388,7 +396,7 @@ def open_virtual_camera(args):
 
 
 # ---------------------------------------------------------------------- views
-def framing(skin: dict, view: str, zoom: float) -> tuple[float, float, float]:
+def framing(skin: dict, view: str, zoom: float, hat: str = "none") -> tuple[float, float, float]:
     """Camera height, lens zoom and visible half-height for a view preset.
 
     Each preset shows the character from some point up to just above the top
@@ -397,6 +405,21 @@ def framing(skin: dict, view: str, zoom: float) -> tuple[float, float, float]:
     _, head_y, _, head_r = skin["head"]
     head_r *= skin["head_scale"][1]
     top = skin.get("top", head_y + head_r)
+    if hat == "propeller":
+        top = max(top, head_y + head_r + 0.24)
+    elif hat == "cowboy":
+        top = max(top, head_y + head_r * 0.72 + 0.56)
+    if skin.get("head_only"):
+        # A floating peanut has no body: every view frames the whole peanut,
+        # the closer ones zoom in on the face.
+        _, body_y, _, body_r = skin["body"]
+        bottom = body_y - body_r * skin["body_scale"][1] - 0.12
+        top += 0.14
+        k = {"full": 0.0, "waist": 0.35, "chest": 0.65, "face": 1.0}[view]
+        zoom *= 1.0 + 0.35 * k
+        half = (top - bottom) / 2.0 / zoom
+        center = (top + bottom) / 2.0 * (1.0 - k) + (skin["face_y"] + 0.25) * k
+        return center, 5.2 / (2.75 * half), half
     bottom, margin = {
         "full": (GROUND - 0.18, 0.22),
         "waist": (head_y - (head_y - GROUND) * 0.55, 0.20),
@@ -553,7 +576,7 @@ def load_settings() -> dict:
 
 
 def save_settings(state: dict):
-    keep = {k: state[k] for k in ("skin_name", "mask", "bg", "view", "zoom")}
+    keep = {k: state[k] for k in ("skin_name", "mask", "bg", "view", "zoom", "hat")}
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(keep, f, indent=2)
@@ -568,6 +591,7 @@ HELP = [
     "+ / - : zoom in / out",
     "B : background    U : upload a background",
     "M : your face on it: features / full / off",
+    "T : hat (peanuts): none / propeller / cowboy",
     "C : calibrate (look straight, press C)    R : reset",
     "K : switch webcam    P : webcam preview",
     "H : hide this help    Q / Esc : quit",
@@ -591,7 +615,8 @@ def outlined_text(img, text, org, scale, color, thickness=1):
 
 def draw_hud(img, state, skin_name, fps, warning=None, timing=None):
     lines = [f"{skin_name} | {VIEWS[state['view']]} | bg: {background_label(state['bg'])} | "
-             f"face: {state['mask']} | {fps:4.1f} fps",
+             f"face: {state['mask']}" + (f" | hat: {state['hat']}" if state.get("hat", "none") != "none" else "")
+             + f" | {fps:4.1f} fps",
              f"webcam: {state['camera']}"]
     if timing:
         lines.append(timing)
@@ -690,6 +715,8 @@ def main(argv=None):
         "skin": skin_i,
         "skin_name": SKINS[skin_i]["name"],
         "mask": mask if mask in MASKS else "features",
+        "hat": (saved.get("hat") if saved.get("skin_name") == SKINS[skin_i]["name"]
+                and saved.get("hat") in HATS else SKINS[skin_i].get("hat", "none")),
         "bg": bg,
         "view": args.view or (saved.get("view") if saved.get("view") in VIEWS else "full"),
         "zoom": float(args.zoom or saved.get("zoom", 1.0)),
@@ -735,6 +762,7 @@ def main(argv=None):
         state["skin"] = i
         state["skin_name"] = SKINS[i]["name"]
         state["mask"] = SKINS[i].get("default_mask", "features")
+        state["hat"] = SKINS[i].get("hat", "none")
 
     set_background(state["bg"])
     # Automatic quality: render scales to step through when the 3D is too slow.
@@ -752,6 +780,7 @@ def main(argv=None):
     t0 = last = time.perf_counter()
     last_seen = -1e9
     face_alpha = 0.0
+    features = {"uEyeL": (0.35, 0.40), "uEyeR": (0.65, 0.40), "uMouth": (0.5, 0.72)}
     fps = 0.0
     out = None
     try:
@@ -782,7 +811,8 @@ def main(argv=None):
                     mask = face.mask_no_brows
                 else:
                     mask = face.mask_features
-                renderer.update_face(face, mask, tracker.topology.triangles)
+                renderer.update_face(face, mask, tracker.topology.triangles, face.mask_lips)
+                features = {"uEyeL": face.eyes_tex[0], "uEyeR": face.eyes_tex[1], "uMouth": face.mouth_tex}
             # Fade the face in/out instead of popping when tracking is lost.
             target = 1.0 if t - last_seen < 0.25 else 0.0
             if args.input:
@@ -796,8 +826,11 @@ def main(argv=None):
                 if bg_frame is not None:
                     renderer.upload_background(bg_frame)
 
-            cam_y, zoom, half = framing(skin, state["view"], state["zoom"])
+            hat = state["hat"] if skin.get("shape") is None else "none"
+            cam_y, zoom, half = framing(skin, state["view"], state["zoom"], hat)
             u = skin_uniforms(skin)
+            u["uHat"] = HATS.index(hat)
+            u.update(features)
             u.update(pose.uniforms(t, skin.get("body_follow", 0.3), skin.get("head_follow", 1.0)))
             # Moving around your frame moves the character by the same share of
             # the picture, however close the view is.
@@ -867,6 +900,8 @@ def main(argv=None):
                     state["zoom"] = max(0.5, state["zoom"] / 1.1)
                 elif key == ord("m"):
                     state["mask"] = MASKS[(MASKS.index(state["mask"]) + 1) % len(MASKS)]
+                elif key == ord("t"):
+                    state["hat"] = HATS[(HATS.index(state["hat"]) + 1) % len(HATS)]
                 elif key == ord("b"):
                     options = list_backgrounds()
                     i = options.index(state["bg"]) if state["bg"] in options else -1

@@ -13,55 +13,80 @@ Optional keys: "net_scale" (size of the scale/netting cells), "belly" +
 your head), "top" (highest point, for camera framing; defaults to the top of
 the head), "head_follow" (how much the head turns with yours), "mouth_only"
 (features mask shows only your mouth), "no_brows" (features mask shows your
-eyes and mouth but not your eyebrows), "default_mask" (features / full / off).
+eyes and mouth but not your eyebrows), "default_mask" (features / full / off),
+"head_only" (a floating peanut: both lobes turn with your head, no limbs),
+"hat" (none / propeller / cowboy, cycled with T), "cracks" (dry cracks in the
+shell), "eye_scale" / "mouth_scale" / "eye_spread" (blow up and spread the
+features on the shell), "lip_tint" + "lip_amount" (tint your lips).
 "shape": "lizard" switches to the cartoon lizard model, which has its own
 body (see mapLizard in renderer.py) and uses "body_yaw".
 """
 
 SKINS = [
     {
+        # TheBurntPeanut's look: a single roasted peanut in its shell that
+        # floats where your head is, with your real eyes and mouth blown up
+        # on the front (no brows), pink lips, a dry cracked tan shell and a
+        # propeller beanie. Press T to swap the hat.
         "name": "Burnt Peanut",
-        "head": (0.0, 0.50, 0.0, 0.60),        # center xyz, radius
-        "head_scale": (1.00, 1.05, 0.95),      # ellipsoid stretch
-        "body": (0.0, -0.50, 0.0, 0.64),
-        "body_scale": (1.00, 1.08, 0.95),
-        "blend": 0.14,                         # how soft the waist is
-        "bumps": 0.010,                        # surface lumpiness
-        "base": (0.78, 0.56, 0.33),            # shell color
-        "dark": (0.16, 0.08, 0.04),            # scorch color
-        "line": (0.45, 0.28, 0.14),            # shell netting color
-        "burn": 0.85,                          # 0 = raw, 1 = charcoal
-        "net": 0.55,                           # netting strength
-        "gloss": 0.25,
-        "limbs": True,
+        "head_only": True,                     # both lobes turn with your head; no body or limbs
+        "hat": "propeller",
+        "head": (0.0, 0.62, 0.0, 0.66),        # upper lobe: center xyz, radius
+        "head_scale": (1.00, 1.06, 0.92),      # ellipsoid stretch
+        "body": (0.0, -0.30, 0.0, 0.64),       # lower lobe
+        "body_scale": (1.02, 1.00, 0.92),
+        "blend": 0.42,                         # a gentle waist, not a pinched one
+        "bumps": 0.008,                        # surface lumpiness
+        "base": (0.80, 0.60, 0.36),            # tan roasted shell
+        "dark": (0.30, 0.16, 0.07),            # over-roasted patches and cracks
+        "line": (0.50, 0.33, 0.17),            # shell netting color
+        "burn": 0.45,                          # 0 = raw, 1 = charcoal
+        "net": 0.5,                            # netting strength
+        "cracks": 0.8,                         # dry cracks in the shell
+        "gloss": 0.12,                         # matte
+        "limbs": False,
         "limb_color": (0.07, 0.06, 0.06),
         "glove_color": (0.95, 0.95, 0.92),
-        "face_size": 1.45,                     # width of the face decal
-        "face_y": 0.46,                        # height of the face on the head
+        "face_size": 1.90,                     # width of the face decal
+        "face_y": 0.22,                        # eyes on the top lobe, mouth on the bottom one
         "no_brows": True,                      # eyes and mouth only, like the real peanut
+        "eye_scale": 1.65,                     # blow up the eyes and the mouth
+        "mouth_scale": 1.45,
+        "eye_spread": 0.025,
+        "lip_tint": (0.95, 0.42, 0.58),        # pink lips
+        "lip_amount": 0.6,
         "face_tint": (0.92, 0.78, 0.62),       # warms your skin toward the shell
-        "tint_amount": 0.35,
+        "tint_amount": 0.30,
     },
     {
+        # The same floating peanut, gold.
         "name": "Golden Peanut",
-        "head": (0.0, 0.50, 0.0, 0.60),
-        "head_scale": (1.00, 1.05, 0.95),
-        "body": (0.0, -0.50, 0.0, 0.64),
-        "body_scale": (1.00, 1.08, 0.95),
-        "blend": 0.14,
-        "bumps": 0.010,
-        "base": (0.90, 0.72, 0.45),
-        "dark": (0.55, 0.36, 0.18),
-        "line": (0.62, 0.45, 0.25),
-        "burn": 0.25,
-        "net": 0.6,
-        "gloss": 0.2,
-        "limbs": True,
+        "head_only": True,
+        "hat": "none",
+        "head": (0.0, 0.62, 0.0, 0.66),
+        "head_scale": (1.00, 1.06, 0.92),
+        "body": (0.0, -0.30, 0.0, 0.64),
+        "body_scale": (1.02, 1.00, 0.92),
+        "blend": 0.42,
+        "bumps": 0.008,
+        "base": (0.92, 0.74, 0.40),
+        "dark": (0.60, 0.42, 0.16),
+        "line": (0.66, 0.50, 0.24),
+        "burn": 0.20,
+        "net": 0.55,
+        "cracks": 0.5,
+        "gloss": 0.5,
+        "limbs": False,
         "limb_color": (0.07, 0.06, 0.06),
         "glove_color": (0.95, 0.95, 0.92),
-        "face_size": 1.45,
-        "face_y": 0.46,
+        "face_size": 1.90,
+        "face_y": 0.22,
         "no_brows": True,
+        "eye_scale": 1.65,
+        "mouth_scale": 1.45,
+        "eye_spread": 0.025,
+        "lip_tint": (0.95, 0.42, 0.58),
+        "lip_amount": 0.6,
         "face_tint": (1.0, 0.88, 0.72),
         "tint_amount": 0.25,
     },
@@ -235,5 +260,28 @@ SKINS = [
         "face_y": 0.205,
         "face_tint": (1.0, 0.92, 0.45),        # warms your skin toward sponge-yellow
         "tint_amount": 0.45,
+    },
+    {
+        # The original full-body peanut with stick arms and legs.
+        "name": "Peanut Pal",
+        "head": (0.0, 0.50, 0.0, 0.60),        # center xyz, radius
+        "head_scale": (1.00, 1.05, 0.95),      # ellipsoid stretch
+        "body": (0.0, -0.50, 0.0, 0.64),
+        "body_scale": (1.00, 1.08, 0.95),
+        "blend": 0.14,                         # how soft the waist is
+        "bumps": 0.010,                        # surface lumpiness
+        "base": (0.78, 0.56, 0.33),            # shell color
+        "dark": (0.16, 0.08, 0.04),            # scorch color
+        "line": (0.45, 0.28, 0.14),            # shell netting color
+        "burn": 0.85,                          # 0 = raw, 1 = charcoal
+        "net": 0.55,                           # netting strength
+        "gloss": 0.25,
+        "limbs": True,
+        "limb_color": (0.07, 0.06, 0.06),
+        "glove_color": (0.95, 0.95, 0.92),
+        "face_size": 1.45,                     # width of the face decal
+        "face_y": 0.46,                        # height of the face on the head
+        "face_tint": (0.92, 0.78, 0.62),       # warms your skin toward the shell
+        "tint_amount": 0.35,
     },
 ]
