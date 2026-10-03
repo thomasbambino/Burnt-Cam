@@ -778,6 +778,8 @@ def main(argv=None):
                     mask = face.mask_full
                 elif skin.get("mouth_only"):
                     mask = face.mask_mouth
+                elif skin.get("no_brows"):
+                    mask = face.mask_no_brows
                 else:
                     mask = face.mask_features
                 renderer.update_face(face, mask, tracker.topology.triangles)

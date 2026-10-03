@@ -85,7 +85,7 @@ Run anyway**. Windows shows this for any script downloaded from the internet.
 | + / −     | Zoom in / out                                                    |
 | B         | Next background (studio, green, webcam, then your own)           |
 | U         | Upload a background picture or video                             |
-| M         | Your face on the character: `features` (eyes, brows, mouth), `full` (whole face) or `off` (puppet mode). Each character starts with its own default. |
+| M         | Your face on the character: `features` (eyes, brows and mouth; the peanuts leave out the brows), `full` (whole face) or `off` (puppet mode). Each character starts with its own default. |
 | C         | Calibrate: look straight ahead and press it                      |
 | R         | Reset calibration                                                |
 | K         | Switch to the next webcam                                        |
@@ -140,8 +140,9 @@ entries and change:
   to the top of the head.
 * `face_tint`, `tint_amount`: tint your skin toward the character's color so it blends in.
 * Optional extras: `belly` / `belly_amount`, `net_scale` (scale size), `mouth_only` (the
-  features mode shows only your mouth) and `body_follow` (how much the body turns with
-  your head).
+  features mode shows only your mouth), `no_brows` (the features mode shows your eyes and
+  mouth but not your eyebrows, as on the two peanuts) and `body_follow` (how much the body
+  turns with your head).
 * `default_mask`: the face mode the skin starts in (`features`, `full` or `off`).
 * `"shape": "lizard"`, `"mage"`, `"duelist"` or `"sponge"` switches to one of the custom
   models (`mapLizard`, `mapMage`, `mapDuelist` or `mapSponge` in `renderer.py`). `body_yaw` turns the lizard's body.

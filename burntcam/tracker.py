@@ -147,6 +147,7 @@ class FaceState:
     tongue: float            # 0..1 tongue sticking out
     mask_full: np.ndarray    # (MASK, MASK) uint8 face-oval mask in tex space
     mask_features: np.ndarray  # eyes + brows + mouth mask in tex space
+    mask_no_brows: np.ndarray  # eyes + mouth, without the brows
     mask_mouth: np.ndarray     # mouth only
 
 
@@ -284,6 +285,7 @@ class FaceTracker:
                 [],
                 [topo.left_eye, topo.right_eye, topo.lips, topo.left_brow, topo.right_brow],
             ),
+            mask_no_brows=self._mask(tex, [], [topo.left_eye, topo.right_eye, topo.lips]),
             mask_mouth=self._mask(tex, [], [topo.lips], pad=0.25),
         )
 

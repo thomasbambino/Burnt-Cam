@@ -11,8 +11,9 @@ Colors are 0..1 RGB.
 Optional keys: "net_scale" (size of the scale/netting cells), "belly" +
 "belly_amount", "limb_radius", "body_follow" (how much the body turns with
 your head), "top" (highest point, for camera framing; defaults to the top of
-the head), "head_follow" (how much the head turns with yours), "mouth_only" (features mask shows only your mouth), "default_mask"
-(features / full / off).
+the head), "head_follow" (how much the head turns with yours), "mouth_only"
+(features mask shows only your mouth), "no_brows" (features mask shows your
+eyes and mouth but not your eyebrows), "default_mask" (features / full / off).
 "shape": "lizard" switches to the cartoon lizard model, which has its own
 body (see mapLizard in renderer.py) and uses "body_yaw".
 """
@@ -37,6 +38,7 @@ SKINS = [
         "glove_color": (0.95, 0.95, 0.92),
         "face_size": 1.45,                     # width of the face decal
         "face_y": 0.46,                        # height of the face on the head
+        "no_brows": True,                      # eyes and mouth only, like the real peanut
         "face_tint": (0.92, 0.78, 0.62),       # warms your skin toward the shell
         "tint_amount": 0.35,
     },
@@ -59,6 +61,7 @@ SKINS = [
         "glove_color": (0.95, 0.95, 0.92),
         "face_size": 1.45,
         "face_y": 0.46,
+        "no_brows": True,
         "face_tint": (1.0, 0.88, 0.72),
         "tint_amount": 0.25,
     },
